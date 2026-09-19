@@ -5,13 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="팜넷 상품을 관리하고 월별 상품 리스트를 발행하는 웹앱" />
     <title>팜넷 상품관리 및 발행</title>
-    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+    <link rel="icon" type="image/png" href="assets/icon.png" />
+    <link rel="apple-touch-icon" href="assets/icon.png" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <a class="brand" href="./" aria-label="팜넷 상품관리 홈"><span class="brand-mark">F</span><span><strong>팜넷</strong><small>상품관리 및 발행</small></span></a>
+        <a class="brand" href="./" aria-label="팜넷 상품관리 홈"><img class="brand-mark" src="assets/icon.png" alt=""><span><strong>팜넷</strong><small>상품관리 및 발행</small></span></a>
         <div class="topbar-title"><strong>팜넷 카페테리아</strong><span>월간 상품 리스트 관리</span></div>
         <div class="profile"><span>김</span><div><strong>김담당</strong><small>상품 관리자</small></div></div>
       </header>
@@ -40,6 +41,13 @@
       <p class="publish-note">같은 월호가 있으면 최신 내용으로 교체됩니다.</p><div class="dialog-actions"><button class="button secondary" data-close-dialog>취소</button><button class="button primary" id="confirmPublish">발행하기</button></div>
     </dialog>
 
-    <div class="toast" id="toast" role="status" aria-live="polite"></div><script src="data/products.js" defer></script><script src="app.js" defer></script>
+    <dialog id="confirmDialog" class="dialog publish-dialog">
+      <div>
+        <div class="publish-icon">?</div><h2 id="confirmTitle"></h2><p class="dialog-copy" id="confirmMessage"></p>
+        <div class="dialog-actions"><button class="button secondary" type="button" id="confirmCancel">취소</button><button class="button primary" type="button" id="confirmOk">확인</button></div>
+      </div>
+    </dialog>
+
+    <div class="toast" id="toast" popover="manual" role="status" aria-live="polite"></div><script src="data/products.js" defer></script><script src="app.js" defer></script>
   </body>
 </html>

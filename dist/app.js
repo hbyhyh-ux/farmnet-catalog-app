@@ -41,6 +41,7 @@ const productDialog = document.querySelector("#productDialog");
 const formDialog = document.querySelector("#formDialog");
 const publishDialog = document.querySelector("#publishDialog");
 const toast = document.querySelector("#toast");
+const confirmDialog = document.querySelector("#confirmDialog");
 let searchTimer;
 document.querySelectorAll("[data-icon]").forEach((el) => { el.innerHTML = icons[el.dataset.icon] || ""; });
 
@@ -53,7 +54,13 @@ function formatNumber(value) { const number = numberValue(value); return number 
 function formatPrice(value) { const formatted = formatNumber(value); return formatted ? `${formatted}원` : "가격 미입력"; }
 function isoDate(value) { const match = String(value || "").trim().match(/^(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})$/); return match ? `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}` : ""; }
 function statusClass(status) { return status === "임시품절" ? "paused" : status === "단종" ? "ended" : "active"; }
-function showToast(message) { toast.textContent = message; toast.classList.add("is-visible"); clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.classList.remove("is-visible"), 2400); }
+// 모달 팝업 위에서도 보이도록 popover(최상위 레이어)로 띄운다.
+function showToast(message) {
+  toast.textContent = message; clearTimeout(showToast.timer); clearTimeout(showToast.hideTimer);
+  try { if (!toast.matches(":popover-open")) toast.showPopover(); } catch {}
+  void toast.offsetWidth; toast.classList.add("is-visible");
+  showToast.timer = setTimeout(() => { toast.classList.remove("is-visible"); showToast.hideTimer = setTimeout(() => { try { toast.hidePopover(); } catch {} }, 260); }, 2400);
+}
 function imageMarkup(product, className = "thumb") { return product.images?.[0] ? `<span class="${className}"><img src="${escapeHtml(product.images[0])}" alt="${escapeHtml(product.name)}" loading="lazy" decoding="async"></span>` : `<span class="${className}"><span class="image-placeholder">${escapeHtml(product.name?.slice(0, 1) || "F")}</span></span>`; }
 // 바뀐 항목만 저장한다 (기본: 상품). 발행본·열 설정까지 매번 통째로 직렬화하지 않는다.
 function persist(...keys) {
@@ -183,14 +190,31 @@ function publishedCard(product, issueId, publicMode = false) {
 function renderPublicCatalog(issueId) {
   document.body.classList.add("public-catalog-mode");
   const issue = state.issues.find((item) => item.id === issueId);
-  if (!issue) { appView.innerHTML = `<div class="public-empty"><span>F</span><h1>이 카탈로그를 불러올 수 없습니다.</h1><p>현재 HTML 초안은 발행한 브라우저에만 데이터가 저장됩니다.<br>외부 공유 운영을 위해서는 공용 데이터베이스 연결이 필요합니다.</p></div>`; return; }
-  appView.innerHTML = `<div class="public-catalog"><header><div class="public-brand"><span class="brand-mark">F</span><strong>FAMNET CAFETERIA</strong></div><p>${issue.year} MONTHLY COLLECTION</p><h1>${issue.month}월의 팜넷 상품</h1><span>${issue.publishedAt} 발행 · ${issue.products.length}개 상품</span></header><main><div class="public-products">${issue.products.map((p) => publishedCard(p, issue.id, true)).join("")}</div></main></div>`;
+  if (!issue) { appView.innerHTML = `<div class="public-empty"><img class="public-empty-icon" src="assets/icon.png" alt=""><h1>이 카탈로그를 불러올 수 없습니다.</h1><p>현재 HTML 초안은 발행한 브라우저에만 데이터가 저장됩니다.<br>외부 공유 운영을 위해서는 공용 데이터베이스 연결이 필요합니다.</p></div>`; return; }
+  appView.innerHTML = `<div class="public-catalog"><header><div class="public-brand"><img class="brand-mark" src="assets/icon.png" alt=""><strong>FAMNET CAFETERIA</strong></div><p>${issue.year} MONTHLY COLLECTION</p><h1>${issue.month}월의 팜넷 상품</h1><span>${issue.products.length}개 상품</span></header><main><div class="public-products">${issue.products.map((p) => publishedCard(p, issue.id, true)).join("")}</div></main></div>`;
 }
 
 function openPublish() {
   const now = new Date(), year = now.getFullYear(), month = now.getMonth() + 1; document.querySelector("#publishProductCount").textContent = `${state.selected.size}개`;
   document.querySelector("#publishYear").innerHTML = Array.from({ length: 7 }, (_, i) => year - 2 + i).map((y) => `<option ${y === year ? "selected" : ""}>${y}</option>`).join("");
   document.querySelector("#publishMonth").innerHTML = Array.from({ length: 12 }, (_, i) => i + 1).map((m) => `<option ${m === month ? "selected" : ""}>${m}</option>`).join(""); publishDialog.showModal();
+}
+function askConfirm({ title, message, ok }) {
+  return new Promise((resolve) => {
+    const okButton = document.querySelector("#confirmOk"), cancelButton = document.querySelector("#confirmCancel");
+    document.querySelector("#confirmTitle").textContent = title; document.querySelector("#confirmMessage").innerHTML = message; okButton.textContent = ok;
+    const finish = (value) => { okButton.onclick = cancelButton.onclick = confirmDialog.onclose = null; if (confirmDialog.open) confirmDialog.close(); resolve(value); };
+    okButton.onclick = () => finish(true); cancelButton.onclick = () => finish(false); confirmDialog.onclose = () => finish(false);
+    confirmDialog.showModal();
+  });
+}
+async function requestPublish() {
+  const year = Number(document.querySelector("#publishYear").value), month = Number(document.querySelector("#publishMonth").value), id = `${year}-${String(month).padStart(2, "0")}`;
+  const existing = state.issues.find((item) => item.id === id), count = state.selected.size;
+  const confirmed = await askConfirm(existing
+    ? { title: `${year}년 ${month}월호를 덮어쓸까요?`, message: `이미 발행된 ${year}년 ${month}월호가 있습니다.<br>덮어쓰면 기존 <strong>${existing.products.length}개</strong> 상품이 이번에 선택한 <strong>${count}개</strong> 상품으로 교체됩니다.`, ok: "덮어쓰기" }
+    : { title: `${year}년 ${month}월호를 신규 발행할까요?`, message: `아직 발행된 ${year}년 ${month}월호가 없습니다.<br>선택한 <strong>${count}개</strong> 상품으로 새 월호를 발행합니다.`, ok: "신규 발행" });
+  if (confirmed) publishIssue();
 }
 function publishIssue() {
   const year = Number(document.querySelector("#publishYear").value), month = Number(document.querySelector("#publishMonth").value), id = `${year}-${String(month).padStart(2, "0")}`;
@@ -206,7 +230,15 @@ async function squareImage(file, size = 640) {
   const canvas = document.createElement("canvas"); canvas.width = size; canvas.height = size; canvas.getContext("2d").drawImage(image, sx, sy, side, side, 0, 0, size, size);
   return canvas.toDataURL("image/webp", .8);
 }
-async function replaceImage(product, file, previewSelector) { if (!file) return; const value = await squareImage(file); product.images = [value]; persist(); const preview = document.querySelector(previewSelector); if (preview) preview.innerHTML = `<img src="${value}" alt="${escapeHtml(product.name)}">`; showToast("상품사진을 1:1 비율로 저장했습니다."); }
+async function replaceImage(product, file, previewSelector) {
+  if (!file) return;
+  try { product.images = [await squareImage(file)]; } catch { return showToast("사진을 불러오지 못했습니다. 다른 이미지로 다시 시도해주세요."); }
+  persist();
+  const preview = previewSelector ? document.querySelector(previewSelector) : null;
+  if (preview) preview.innerHTML = `<img src="${product.images[0]}" alt="${escapeHtml(product.name)}">`;
+  renderProducts();
+  showToast(`${(product.name || "상품").replace(/\s+/g, " ")} 사진이 변경되었습니다.`);
+}
 
 document.addEventListener("click", (event) => {
   const nav = event.target.closest(".nav-item"); if (nav) { state.section = nav.dataset.section; state.openIssue = null; state.search = ""; return render(); }
@@ -214,7 +246,7 @@ document.addEventListener("click", (event) => {
   const mode = event.target.closest("[data-mode]"); if (mode) { state.mode = mode.dataset.mode; return renderProducts(); }
   const filter = event.target.closest("[data-status]"); if (filter) { state.status = filter.dataset.status; return renderProducts(); }
   if (event.target.closest("#newProduct")) { document.querySelector("#productForm").reset(); delete document.querySelector("#newProductImage").dataset.processed; document.querySelector("#registrationFields").innerHTML = registrationFields(); document.querySelector("#newProductPreview").innerHTML = "＋"; return formDialog.showModal(); }
-  if (event.target.closest("#openPublish")) return openPublish(); if (event.target.closest("#confirmPublish")) return publishIssue();
+  if (event.target.closest("#openPublish")) return openPublish(); if (event.target.closest("#confirmPublish")) return requestPublish();
   if (event.target.closest("#backToIssues")) { state.openIssue = null; return renderIssues(); }
   const issue = event.target.closest("[data-issue]"); if (issue) { state.openIssue = issue.dataset.issue; return renderIssues(); }
   const snapshot = event.target.closest("[data-snapshot-product]"); if (snapshot) { const source = state.issues.find((i) => i.id === snapshot.dataset.snapshot); return openProduct(source?.products.find((p) => p.uid === snapshot.dataset.snapshotProduct), { readOnly: true }); }
@@ -232,7 +264,7 @@ document.addEventListener("change", async (event) => {
   if (event.target.matches("[data-edit-id]")) { const product = state.products.find((p) => p.uid === event.target.dataset.editId); if (!product) return; const field = event.target.dataset.field; product[field] = COLUMN_DEFS[field].type === "money" ? numberValue(event.target.value) : event.target.value; if (field === "status") sortProducts(state.products); persist(); showToast(field === "status" ? `${(product.name || "상품").replace(/\s+/g, " ")}: ${product.status}(으)로 이동했습니다.` : `${product.name || "상품"} 정보가 저장되었습니다.`); if (field === "status") renderProducts(); }
   if (event.target.matches("[data-image-id]")) { const product = state.products.find((p) => p.uid === event.target.dataset.imageId); if (product) { await replaceImage(product, event.target.files?.[0], ""); renderProducts(); } }
   if (event.target.id === "newProductImage" && event.target.files?.[0]) { const value = await squareImage(event.target.files[0]); event.target.dataset.processed = value; document.querySelector("#newProductPreview").innerHTML = `<img src="${value}" alt="미리보기">`; }
-  if (event.target.id === "detailImageInput") { const product = state.products.find((p) => p.uid === document.querySelector("#detailEditForm")?.dataset.detailId); if (product) await replaceImage(product, event.target.files?.[0], "#detailImagePreview"); }
+  if (event.target.id === "detailImageInput") { const product = state.products.find((p) => p.uid === document.querySelector("#detailEditForm")?.dataset.detailId); if (product) await replaceImage(product, event.target.files?.[0], "#detailImagePreview"); event.target.value = ""; }
 });
 
 document.addEventListener("dragstart", (event) => {
@@ -334,7 +366,7 @@ document.addEventListener("submit", (event) => {
   const data = Object.fromEntries(new FormData(event.target)); state.columns.forEach((key) => { if (key === "image") return; const value = data[`detail-${key}`] ?? ""; product[key] = COLUMN_DEFS[key].type === "money" ? numberValue(value) : value; });
   sortProducts(state.products); persist(); productDialog.close(); renderProducts(); showToast("상품 상세정보를 저장했습니다.");
 });
-[productDialog, formDialog, publishDialog].forEach((dialog) => dialog.addEventListener("click", (event) => { const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); }));
+[productDialog, formDialog, publishDialog, confirmDialog].forEach((dialog) => dialog.addEventListener("click", (event) => { if (event.target !== dialog) return; const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); }));
 
 async function init() {
   try {
