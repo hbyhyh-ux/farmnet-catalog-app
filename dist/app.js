@@ -60,7 +60,7 @@ function persist(...keys) {
   updateBadges();
 }
 function updateBadges() { document.querySelector("#productCountBadge").textContent = state.products.length; document.querySelector("#issueCountBadge").textContent = state.issues.length; }
-function pageHead(title, description, actions = "") { return `<div class="page-head"><div><p class="eyebrow">FAMNET CATALOG</p><h1>${title}</h1><p>${description}</p></div><div class="page-actions">${actions}</div></div>`; }
+function pageHead(title, description, actions = "") { return `<div class="page-head"><div><h1>${title}</h1>${description ? `<p>${description}</p>` : ""}</div><div class="page-actions">${actions}</div></div>`; }
 function visibleProducts() { const query = state.search.trim().toLowerCase(); return state.products.filter((p) => (state.status === "전체" || p.status === state.status) && (!query || state.columns.some((key) => String(p[key] || "").toLowerCase().includes(query)))); }
 function render() { document.querySelectorAll(".nav-item").forEach((el) => el.classList.toggle("is-active", el.dataset.section === state.section)); if (state.section === "products") renderProducts(); else renderIssues(); }
 
@@ -80,12 +80,10 @@ function renderProducts() {
   const counts = Object.fromEntries(STATUS.map((status) => [status, state.products.filter((p) => p.status === status).length]));
   const cols = state.columns.filter((key) => COLUMN_DEFS[key]);
   const tableWidth = 64 + cols.reduce((sum, key) => sum + (state.widths[key] || COLUMN_DEFS[key].width), 0);
-  appView.innerHTML = `${pageHead("상품관리 및 발행", "열 머리글과 행의 ⋮⋮ 손잡이를 드래그해 원하는 순서로 정리할 수 있습니다.", `<button class="button secondary" id="newProduct">${icons.plus}상품 등록</button><button class="button primary" id="openPublish" ${state.selected.size ? "" : "disabled"}>${icons.send}선택 ${state.selected.size}개 발행</button>`)}
-    <section class="summary-strip"><div><span>전체 상품</span><strong>${state.products.length}</strong></div>${STATUS.map((status) => `<div><span><i class="status-dot ${statusClass(status)}"></i>${status}</span><strong>${counts[status]}</strong></div>`).join("")}</section>
+  appView.innerHTML = `${pageHead("상품관리 및 발행", "", `<button class="button secondary" id="newProduct">${icons.plus}상품 등록</button><button class="button primary" id="openPublish" ${state.selected.size ? "" : "disabled"}>${icons.send}선택 ${state.selected.size}개 발행</button>`)}
     <section class="panel"><div class="panel-head"><div class="status-filters">${["전체", ...STATUS].map((status) => `<button class="filter-chip ${state.status === status ? "is-active" : ""}" data-status="${status}">${status}<span>${status === "전체" ? state.products.length : counts[status]}</span></button>`).join("")}</div><div class="toolbar"><label class="search-wrap">${icons.search}<input id="productSearch" value="${escapeHtml(state.search)}" placeholder="전체 상품정보 검색"></label><div class="mode-switch"><button class="${state.mode === "view" ? "is-active" : ""}" data-mode="view">${icons.eye}보기모드</button><button class="${state.mode === "edit" ? "is-active" : ""}" data-mode="edit">${icons.edit}수정모드</button></div></div></div>
-      <div class="table-guide"><span>↔ 열 머리글 드래그: 순서 변경</span><span>열 경계 드래그: 너비 변경</span><span>⋮⋮ 행 손잡이 드래그: 상품 순서 변경</span></div>
       <div class="table-scroll"><table class="catalog-table ${state.mode === "edit" ? "edit-table" : ""}" style="width:${tableWidth}px"><colgroup><col class="utility-col">${cols.map((key) => `<col data-col-width="${key}" style="width:${state.widths[key] || COLUMN_DEFS[key].width}px">`).join("")}</colgroup><thead><tr><th class="utility-head"><input id="selectAll" type="checkbox" aria-label="현재 목록 전체 선택" ${products.length && products.every((p) => state.selected.has(p.uid)) ? "checked" : ""}></th>${cols.map(columnHeader).join("")}</tr></thead><tbody>${products.map(productRow).join("") || `<tr><td colspan="${cols.length + 1}" class="empty-cell">조건에 맞는 상품이 없습니다.</td></tr>`}</tbody></table></div>
-      <div class="table-footer"><span>총 ${products.length}개 표시 · ${cols.length}개 정보 열</span><span>${state.mode === "edit" ? "입력값을 바꾸면 즉시 저장됩니다." : "상품 행을 누르면 상세 팝업에서 바로 수정할 수 있습니다."}</span></div></section>
+      <div class="table-footer"><span>총 ${products.length}개 표시 · ${cols.length}개 정보 열</span><span>열 머리글 드래그: 순서 · 열 경계 드래그: 너비 · ⋮⋮ 드래그: 행 순서</span><span>${state.mode === "edit" ? "입력값을 바꾸면 즉시 저장됩니다." : "상품 행을 누르면 상세 팝업이 열립니다."}</span></div></section>
       <div class="viewport-scrollbar" aria-label="상품표 좌우 스크롤"><div style="width:${tableWidth}px"></div></div>`;
   setupTableScrolling();
 }
@@ -108,8 +106,8 @@ function setupTableScrolling() {
   tableScroll.addEventListener("scroll", () => sync(tableScroll, viewportScroll));
   viewportScroll.addEventListener("scroll", () => sync(viewportScroll, tableScroll));
 }
-function columnHeader(key) { const def = COLUMN_DEFS[key]; return `<th draggable="true" data-column="${key}"><span class="column-drag">⋮⋮</span>${def.label}<span class="resize-handle" data-resize-column="${key}" aria-hidden="true"></span></th>`; }
-function productRow(product) { return `<tr draggable="true" data-row-id="${product.uid}" data-product="${product.uid}"><td class="utility-cell"><span class="row-drag" title="상품 순서 이동">⋮⋮</span><input type="checkbox" data-select="${product.uid}" aria-label="${escapeHtml(product.name)} 발행 선택" ${state.selected.has(product.uid) ? "checked" : ""}></td>${state.columns.filter((key) => COLUMN_DEFS[key]).map((key) => `<td data-cell="${key}">${state.mode === "edit" ? editCell(product, key) : viewCell(product, key)}</td>`).join("")}</tr>`; }
+function columnHeader(key) { const def = COLUMN_DEFS[key]; return `<th data-column="${key}" title="드래그: 열 순서 변경"><span class="column-drag">⋮⋮</span>${def.label}<span class="resize-handle" data-resize-column="${key}" aria-hidden="true"></span></th>`; }
+function productRow(product) { return `<tr data-row-id="${product.uid}" data-product="${product.uid}"><td class="utility-cell"><span class="row-drag" title="상품 순서 이동">⋮⋮</span><input type="checkbox" data-select="${product.uid}" aria-label="${escapeHtml(product.name)} 발행 선택" ${state.selected.has(product.uid) ? "checked" : ""}></td>${state.columns.filter((key) => COLUMN_DEFS[key]).map((key) => `<td data-cell="${key}">${state.mode === "edit" ? editCell(product, key) : viewCell(product, key)}</td>`).join("")}</tr>`; }
 function viewCell(product, key) {
   const def = COLUMN_DEFS[key], value = product[key];
   if (def.type === "image") return imageMarkup(product);
@@ -223,10 +221,13 @@ document.addEventListener("change", async (event) => {
 });
 
 document.addEventListener("dragstart", (event) => {
-  const th = event.target.closest("th[data-column]"); if (th && !event.target.closest(".resize-handle")) { state.draggedColumn = th.dataset.column; event.dataTransfer.effectAllowed = "move"; th.classList.add("is-dragging"); return; }
-  const row = event.target.closest("tr[data-row-id]"); if (row && event.target.closest(".row-drag")) { state.draggedRow = row.dataset.rowId; state.justDragged = true; event.dataTransfer.effectAllowed = "move"; row.classList.add("is-dragging"); } else if (row) event.preventDefault();
+  if (!(event.target instanceof Element)) return;
+  event.dataTransfer.setData("text/plain", "");
+  const th = event.target.closest("th[data-column]"); if (th) { state.draggedColumn = th.dataset.column; event.dataTransfer.effectAllowed = "move"; th.classList.add("is-dragging"); return; }
+  const row = event.target.closest("tr[data-row-id]"); if (row) { state.draggedRow = row.dataset.rowId; state.justDragged = true; event.dataTransfer.effectAllowed = "move"; row.classList.add("is-dragging"); }
 });
 document.addEventListener("dragover", (event) => {
+  if (!(event.target instanceof Element)) return;
   const th = event.target.closest("th[data-column]");
   if (th && state.draggedColumn) {
     event.preventDefault(); event.dataTransfer.dropEffect = "move";
@@ -234,6 +235,7 @@ document.addEventListener("dragover", (event) => {
     if (!dragged || dragged === th) return;
     const placeAfter = event.clientX > th.getBoundingClientRect().left + th.offsetWidth / 2;
     const reference = placeAfter ? th.nextElementSibling : th;
+    if (reference === dragged) return;
     th.parentElement.insertBefore(dragged, reference);
     const draggedCol = document.querySelector(`col[data-col-width="${state.draggedColumn}"]`), targetCol = document.querySelector(`col[data-col-width="${th.dataset.column}"]`);
     if (draggedCol && targetCol) targetCol.parentElement.insertBefore(draggedCol, placeAfter ? targetCol.nextElementSibling : targetCol);
@@ -244,22 +246,53 @@ document.addEventListener("dragover", (event) => {
     state.columns = [...document.querySelectorAll("th[data-column]")].map((header) => header.dataset.column);
     return;
   }
-  if (event.target.closest("tr[data-row-id]")) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }
+  const row = event.target.closest("tr[data-row-id]");
+  if (row && state.draggedRow) {
+    event.preventDefault(); event.dataTransfer.dropEffect = "move";
+    document.querySelectorAll(".drop-target").forEach((el) => el.classList.remove("drop-target"));
+    if (row.dataset.rowId !== state.draggedRow) row.classList.add("drop-target");
+  }
 });
 document.addEventListener("drop", (event) => {
-  const th = event.target.closest("th[data-column]"); if (th && state.draggedColumn) { event.preventDefault(); persist("columns"); }
-  const row = event.target.closest("tr[data-row-id]"); if (row && state.draggedRow) { event.preventDefault(); const from = state.products.findIndex((p) => p.uid === state.draggedRow), to = state.products.findIndex((p) => p.uid === row.dataset.rowId); if (from >= 0 && to >= 0 && from !== to) { const [moved] = state.products.splice(from, 1); state.products.splice(to, 0, moved); persist(); renderProducts(); } }
+  if (!(event.target instanceof Element)) return;
+  if (state.draggedColumn) { event.preventDefault(); return; }
+  const row = event.target.closest("tr[data-row-id]");
+  if (row && state.draggedRow) {
+    event.preventDefault();
+    const from = state.products.findIndex((p) => p.uid === state.draggedRow), to = state.products.findIndex((p) => p.uid === row.dataset.rowId);
+    if (from >= 0 && to >= 0 && from !== to) { const [moved] = state.products.splice(from, 1); state.products.splice(to, 0, moved); persist(); renderProducts(); }
+  }
 });
-document.addEventListener("dragend", () => { if (state.draggedColumn) persist("columns"); state.draggedColumn = null; state.draggedRow = null; setTimeout(() => { state.justDragged = false; }, 50); document.querySelectorAll(".is-dragging").forEach((el) => el.classList.remove("is-dragging")); });
+document.addEventListener("dragend", () => {
+  if (state.draggedColumn) persist("columns");
+  state.draggedColumn = null; state.draggedRow = null; setTimeout(() => { state.justDragged = false; }, 50);
+  document.querySelectorAll(".is-dragging,.drop-target").forEach((el) => el.classList.remove("is-dragging", "drop-target"));
+  disarmDrag();
+});
 
+// 열 머리글/행 손잡이를 누르고 있는 동안에만 draggable로 만든다. (열 너비 조절과 겹치지 않도록)
+function disarmDrag() { document.querySelectorAll('th[draggable="true"],tr[draggable="true"]').forEach((el) => el.removeAttribute("draggable")); }
 document.addEventListener("mousedown", (event) => {
-  const handle = event.target.closest("[data-resize-column]"); if (!handle) return;
-  event.preventDefault(); event.stopPropagation(); const key = handle.dataset.resizeColumn, col = document.querySelector(`col[data-col-width="${key}"]`); if (!col) return;
-  const table = col.closest("table"), startX = event.clientX, startWidth = parseInt(col.style.width, 10) || COLUMN_DEFS[key].width, startTableWidth = parseInt(table.style.width, 10);
-  const move = (moveEvent) => { const width = Math.max(80, startWidth + moveEvent.clientX - startX); col.style.width = `${width}px`; table.style.width = `${startTableWidth + width - startWidth}px`; state.widths[key] = width; };
-  const up = () => { document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); persist("widths"); };
-  document.addEventListener("mousemove", move); document.addEventListener("mouseup", up);
+  if (event.button !== 0 || !(event.target instanceof Element)) return;
+  const handle = event.target.closest("[data-resize-column]");
+  if (handle) {
+    event.preventDefault(); disarmDrag();
+    const key = handle.dataset.resizeColumn, col = document.querySelector(`col[data-col-width="${key}"]`); if (!col) return;
+    const table = col.closest("table"), startX = event.clientX, startWidth = parseInt(col.style.width, 10) || COLUMN_DEFS[key].width, startTableWidth = parseInt(table.style.width, 10);
+    document.body.classList.add("is-resizing");
+    const move = (moveEvent) => {
+      if (!moveEvent.buttons) return up();
+      const width = Math.max(80, startWidth + moveEvent.clientX - startX); col.style.width = `${width}px`; table.style.width = `${startTableWidth + width - startWidth}px`; state.widths[key] = width;
+    };
+    const up = () => { document.body.classList.remove("is-resizing"); document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); window.removeEventListener("blur", up); persist("widths"); };
+    document.addEventListener("mousemove", move); document.addEventListener("mouseup", up); window.addEventListener("blur", up);
+    return;
+  }
+  if (event.target.closest("input,select,textarea")) return;
+  const th = event.target.closest("th[data-column]"); if (th) return th.setAttribute("draggable", "true");
+  const grip = event.target.closest(".row-drag"); if (grip) grip.closest("tr")?.setAttribute("draggable", "true");
 });
+document.addEventListener("mouseup", disarmDrag);
 
 document.querySelector("#productForm").addEventListener("submit", async (event) => {
   event.preventDefault(); const data = Object.fromEntries(new FormData(event.currentTarget)); const product = normalizeProduct({ uid: uid(), images: event.currentTarget.image.dataset.processed ? [event.currentTarget.image.dataset.processed] : [] });
