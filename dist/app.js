@@ -38,6 +38,7 @@ const productDialog = document.querySelector("#productDialog");
 const formDialog = document.querySelector("#formDialog");
 const publishDialog = document.querySelector("#publishDialog");
 const toast = document.querySelector("#toast");
+let searchTimer;
 document.querySelectorAll("[data-icon]").forEach((el) => { el.innerHTML = icons[el.dataset.icon] || ""; });
 
 function escapeHtml(value = "") { return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;"); }
@@ -50,9 +51,11 @@ function formatPrice(value) { const formatted = formatNumber(value); return form
 function isoDate(value) { const match = String(value || "").trim().match(/^(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})$/); return match ? `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}` : ""; }
 function statusClass(status) { return status === "임시품절" ? "paused" : status === "단종" ? "ended" : "active"; }
 function showToast(message) { toast.textContent = message; toast.classList.add("is-visible"); clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.classList.remove("is-visible"), 2400); }
-function imageMarkup(product, className = "thumb") { return product.images?.[0] ? `<span class="${className}"><img src="${escapeHtml(product.images[0])}" alt="${escapeHtml(product.name)}"></span>` : `<span class="${className}"><span class="image-placeholder">${escapeHtml(product.name?.slice(0, 1) || "F")}</span></span>`; }
-function persist() {
-  try { localStorage.setItem(STORAGE.products, JSON.stringify(state.products)); localStorage.setItem(STORAGE.issues, JSON.stringify(state.issues)); localStorage.setItem(STORAGE.columns, JSON.stringify(state.columns)); localStorage.setItem(STORAGE.widths, JSON.stringify(state.widths)); }
+function imageMarkup(product, className = "thumb") { return product.images?.[0] ? `<span class="${className}"><img src="${escapeHtml(product.images[0])}" alt="${escapeHtml(product.name)}" loading="lazy" decoding="async"></span>` : `<span class="${className}"><span class="image-placeholder">${escapeHtml(product.name?.slice(0, 1) || "F")}</span></span>`; }
+// 바뀐 항목만 저장한다 (기본: 상품). 발행본·열 설정까지 매번 통째로 직렬화하지 않는다.
+function persist(...keys) {
+  const targets = keys.length ? keys : ["products"];
+  try { targets.forEach((key) => localStorage.setItem(STORAGE[key], JSON.stringify(state[key]))); }
   catch { showToast("브라우저 저장공간이 부족합니다. 오래된 발행본을 정리해주세요."); }
   updateBadges();
 }
@@ -61,13 +64,14 @@ function pageHead(title, description, actions = "") { return `<div class="page-h
 function visibleProducts() { const query = state.search.trim().toLowerCase(); return state.products.filter((p) => (state.status === "전체" || p.status === state.status) && (!query || state.columns.some((key) => String(p[key] || "").toLowerCase().includes(query)))); }
 function render() { document.querySelectorAll(".nav-item").forEach((el) => el.classList.toggle("is-active", el.dataset.section === state.section)); if (state.section === "products") renderProducts(); else renderIssues(); }
 
-function normalizeProduct(source, index = 0, total = 0) {
+// 기본 데이터(data/products.js)는 이미 정리돼 있고, 예전 버전으로 저장된 브라우저 데이터만 보정한다.
+function normalizeProduct(source) {
   const product = { ...source };
   product.uid = product.uid || uid();
-  product.status = product.status || (index >= total - 3 ? "단종" : (!product.included || index === 8 || index === 17 ? "임시품절" : "운영중"));
+  product.status = product.status || "운영중";
   product.saleLink = product.saleLink || product.url || "";
-  ["wholesalePrice", "price", "shippingFee"].forEach((key) => { product[key] = numberValue(product[key]); });
-  delete product.id; delete product.legacyNo; delete product.url; delete product.saleStatus;
+  ["price", "shippingFee"].forEach((key) => { product[key] = numberValue(product[key]); });
+  ["id", "legacyNo", "url", "saleStatus", "wholesalePrice", "organization", "manager", "barcode", "setPack", "shippingMethod", "note", "channel", "included", "featured", "change"].forEach((key) => delete product[key]);
   return product;
 }
 
@@ -84,6 +88,17 @@ function renderProducts() {
       <div class="table-footer"><span>총 ${products.length}개 표시 · ${cols.length}개 정보 열</span><span>${state.mode === "edit" ? "입력값을 바꾸면 즉시 저장됩니다." : "상품 행을 누르면 상세 팝업에서 바로 수정할 수 있습니다."}</span></div></section>
       <div class="viewport-scrollbar" aria-label="상품표 좌우 스크롤"><div style="width:${tableWidth}px"></div></div>`;
   setupTableScrolling();
+}
+function refreshRows() {
+  const products = visibleProducts(), cols = state.columns.filter((key) => COLUMN_DEFS[key]);
+  const tbody = document.querySelector(".catalog-table tbody"); if (!tbody) return renderProducts();
+  tbody.innerHTML = products.map(productRow).join("") || `<tr><td colspan="${cols.length + 1}" class="empty-cell">조건에 맞는 상품이 없습니다.</td></tr>`;
+  const footer = document.querySelector(".table-footer span"); if (footer) footer.textContent = `총 ${products.length}개 표시 · ${cols.length}개 정보 열`;
+  syncSelection(products);
+}
+function syncSelection(products = visibleProducts()) {
+  const all = document.querySelector("#selectAll"); if (all) all.checked = Boolean(products.length) && products.every((p) => state.selected.has(p.uid));
+  const publish = document.querySelector("#openPublish"); if (publish) { publish.disabled = !state.selected.size; publish.lastChild.textContent = `선택 ${state.selected.size}개 발행`; }
 }
 function setupTableScrolling() {
   const tableScroll = document.querySelector(".table-scroll"), viewportScroll = document.querySelector(".viewport-scrollbar");
@@ -168,15 +183,15 @@ function publishIssue() {
   const year = Number(document.querySelector("#publishYear").value), month = Number(document.querySelector("#publishMonth").value), id = `${year}-${String(month).padStart(2, "0")}`;
   const issue = { id, year, month, publishedAt: new Intl.DateTimeFormat("ko-KR", { dateStyle: "long" }).format(new Date()), products: state.products.filter((p) => state.selected.has(p.uid)).map(clone) };
   const index = state.issues.findIndex((item) => item.id === id); if (index >= 0) state.issues[index] = issue; else state.issues.push(issue);
-  state.selected.clear(); state.section = "issues"; state.openIssue = id; persist(); publishDialog.close(); render(); showToast(`${year}년 ${month}월호가 발행되었습니다.`);
+  state.selected.clear(); state.section = "issues"; state.openIssue = id; persist("issues"); publishDialog.close(); render(); showToast(`${year}년 ${month}월호가 발행되었습니다.`);
 }
 
-async function squareImage(file, size = 720) {
+async function squareImage(file, size = 640) {
   const dataUrl = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); });
   const image = await new Promise((resolve, reject) => { const img = new Image(); img.onload = () => resolve(img); img.onerror = reject; img.src = dataUrl; });
   const side = Math.min(image.naturalWidth, image.naturalHeight), sx = (image.naturalWidth - side) / 2, sy = (image.naturalHeight - side) / 2;
   const canvas = document.createElement("canvas"); canvas.width = size; canvas.height = size; canvas.getContext("2d").drawImage(image, sx, sy, side, side, 0, 0, size, size);
-  return canvas.toDataURL("image/webp", .86);
+  return canvas.toDataURL("image/webp", .8);
 }
 async function replaceImage(product, file, previewSelector) { if (!file) return; const value = await squareImage(file); product.images = [value]; persist(); const preview = document.querySelector(previewSelector); if (preview) preview.innerHTML = `<img src="${value}" alt="${escapeHtml(product.name)}">`; showToast("상품사진을 1:1 비율로 저장했습니다."); }
 
@@ -195,12 +210,12 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("input", (event) => {
-  if (event.target.id === "productSearch") { state.search = event.target.value; renderProducts(); document.querySelector("#productSearch")?.focus(); }
+  if (event.target.id === "productSearch") { state.search = event.target.value; clearTimeout(searchTimer); searchTimer = setTimeout(refreshRows, 120); }
   if (event.target.matches(".money-input")) event.target.value = formatNumber(event.target.value);
 });
 document.addEventListener("change", async (event) => {
-  if (event.target.matches("[data-select]")) { event.target.checked ? state.selected.add(event.target.dataset.select) : state.selected.delete(event.target.dataset.select); return renderProducts(); }
-  if (event.target.id === "selectAll") { visibleProducts().forEach((p) => event.target.checked ? state.selected.add(p.uid) : state.selected.delete(p.uid)); return renderProducts(); }
+  if (event.target.matches("[data-select]")) { event.target.checked ? state.selected.add(event.target.dataset.select) : state.selected.delete(event.target.dataset.select); return syncSelection(); }
+  if (event.target.id === "selectAll") { visibleProducts().forEach((p) => event.target.checked ? state.selected.add(p.uid) : state.selected.delete(p.uid)); document.querySelectorAll("[data-select]").forEach((box) => { box.checked = event.target.checked; }); return syncSelection(); }
   if (event.target.matches("[data-edit-id]")) { const product = state.products.find((p) => p.uid === event.target.dataset.editId); if (!product) return; const field = event.target.dataset.field; product[field] = COLUMN_DEFS[field].type === "money" ? numberValue(event.target.value) : event.target.value; persist(); showToast(`${product.name || "상품"} 정보가 저장되었습니다.`); }
   if (event.target.matches("[data-image-id]")) { const product = state.products.find((p) => p.uid === event.target.dataset.imageId); if (product) { await replaceImage(product, event.target.files?.[0], ""); renderProducts(); } }
   if (event.target.id === "newProductImage" && event.target.files?.[0]) { const value = await squareImage(event.target.files[0]); event.target.dataset.processed = value; document.querySelector("#newProductPreview").innerHTML = `<img src="${value}" alt="미리보기">`; }
@@ -232,17 +247,17 @@ document.addEventListener("dragover", (event) => {
   if (event.target.closest("tr[data-row-id]")) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }
 });
 document.addEventListener("drop", (event) => {
-  const th = event.target.closest("th[data-column]"); if (th && state.draggedColumn) { event.preventDefault(); persist(); }
+  const th = event.target.closest("th[data-column]"); if (th && state.draggedColumn) { event.preventDefault(); persist("columns"); }
   const row = event.target.closest("tr[data-row-id]"); if (row && state.draggedRow) { event.preventDefault(); const from = state.products.findIndex((p) => p.uid === state.draggedRow), to = state.products.findIndex((p) => p.uid === row.dataset.rowId); if (from >= 0 && to >= 0 && from !== to) { const [moved] = state.products.splice(from, 1); state.products.splice(to, 0, moved); persist(); renderProducts(); } }
 });
-document.addEventListener("dragend", () => { if (state.draggedColumn) persist(); state.draggedColumn = null; state.draggedRow = null; setTimeout(() => { state.justDragged = false; }, 50); document.querySelectorAll(".is-dragging").forEach((el) => el.classList.remove("is-dragging")); });
+document.addEventListener("dragend", () => { if (state.draggedColumn) persist("columns"); state.draggedColumn = null; state.draggedRow = null; setTimeout(() => { state.justDragged = false; }, 50); document.querySelectorAll(".is-dragging").forEach((el) => el.classList.remove("is-dragging")); });
 
 document.addEventListener("mousedown", (event) => {
   const handle = event.target.closest("[data-resize-column]"); if (!handle) return;
   event.preventDefault(); event.stopPropagation(); const key = handle.dataset.resizeColumn, col = document.querySelector(`col[data-col-width="${key}"]`); if (!col) return;
   const table = col.closest("table"), startX = event.clientX, startWidth = parseInt(col.style.width, 10) || COLUMN_DEFS[key].width, startTableWidth = parseInt(table.style.width, 10);
   const move = (moveEvent) => { const width = Math.max(80, startWidth + moveEvent.clientX - startX); col.style.width = `${width}px`; table.style.width = `${startTableWidth + width - startWidth}px`; state.widths[key] = width; };
-  const up = () => { document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); persist(); };
+  const up = () => { document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); persist("widths"); };
   document.addEventListener("mousemove", move); document.addEventListener("mouseup", up);
 });
 
@@ -260,10 +275,11 @@ document.addEventListener("submit", (event) => {
 
 async function init() {
   try {
-    const response = await fetch("data/products.json"); if (!response.ok) throw new Error("상품 데이터를 불러오지 못했습니다."); const source = await response.json();
-    const savedProducts = JSON.parse(localStorage.getItem(STORAGE.products) || "null"), savedIssues = JSON.parse(localStorage.getItem(STORAGE.issues) || "null"), raw = savedProducts || source;
-    state.products = raw.map((p, index) => normalizeProduct(p, index, raw.length)); state.issues = (savedIssues || []).map((issue) => ({ ...issue, products: issue.products.map((p) => normalizeProduct(p)) }));
-    state.columns = [...new Set([...state.columns.filter((key) => COLUMN_DEFS[key]), ...DEFAULT_COLUMNS.filter((key) => !state.columns.includes(key))])]; persist();
+    const savedProducts = JSON.parse(localStorage.getItem(STORAGE.products) || "null"), savedIssues = JSON.parse(localStorage.getItem(STORAGE.issues) || "null"), raw = savedProducts || window.__PRODUCTS__;
+    if (!raw) throw new Error("상품 데이터를 불러오지 못했습니다.");
+    state.products = raw.map(normalizeProduct); state.issues = (savedIssues || []).map((issue) => ({ ...issue, products: issue.products.map(normalizeProduct) }));
+    state.columns = [...new Set([...state.columns.filter((key) => COLUMN_DEFS[key]), ...DEFAULT_COLUMNS.filter((key) => !state.columns.includes(key))])];
+    if (!savedProducts) persist(); else updateBadges();
     const publicIssue = new URLSearchParams(location.search).get("catalog"); if (publicIssue) renderPublicCatalog(publicIssue); else render();
   } catch (error) { appView.innerHTML = `<div class="empty-state"><span>!</span><h2>상품 데이터를 불러오지 못했습니다.</h2><p>${escapeHtml(error.message)}</p></div>`; }
 }

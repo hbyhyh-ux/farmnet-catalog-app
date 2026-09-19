@@ -13,13 +13,11 @@
 
 ## 실행
 
-`dist` 폴더를 정적 웹 서버로 열면 됩니다. 파일을 직접 더블클릭하면 상품 JSON을 불러오지 못할 수 있습니다.
+루트 `index.html`(또는 `dist/index.html`)을 더블클릭하면 바로 열립니다. 상품 데이터는 `dist/data/products.js`에서 스크립트로 불러오므로 별도 서버가 필요 없습니다.
 
 ```bash
 python -m http.server 8000 --directory dist
 ```
-
-브라우저에서 `http://localhost:8000`을 엽니다.
 
 ## 데이터 저장 방식
 
