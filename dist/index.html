@@ -13,7 +13,7 @@
     <div class="app-shell">
       <header class="topbar">
         <a class="brand" href="./" aria-label="팜넷 상품관리 홈"><img class="brand-mark" src="assets/icon.png" alt=""><span><strong>팜넷</strong><small>상품관리 및 발행</small></span></a>
-        <div class="topbar-title"><strong>팜넷 카페테리아</strong><span>월간 상품 리스트 관리</span></div>
+        <div class="topbar-title"><strong>팜넷 카페테리아</strong><span>월간 상품 리스트 관리</span><em class="sync-status" id="syncStatus" role="status"></em></div>
         <div class="profile"><span>김</span><div><strong>김담당</strong><small>상품 관리자</small></div></div>
       </header>
       <aside class="sidebar">
@@ -48,6 +48,6 @@
       </div>
     </dialog>
 
-    <div class="toast" id="toast" popover="manual" role="status" aria-live="polite"></div><script src="data/products.js" defer></script><script src="app.js" defer></script>
+    <div class="toast" id="toast" popover="manual" role="status" aria-live="polite"></div><script src="config.js" defer></script><script src="data/products.js" defer></script><script src="sync.js" defer></script><script src="app.js" defer></script>
   </body>
 </html>

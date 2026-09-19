@@ -17,6 +17,7 @@ const COLUMN_DEFS = {
   saleLink: { label: "판매링크", width: 260, type: "url" }
 };
 const DEFAULT_COLUMNS = Object.keys(COLUMN_DEFS);
+const Sync = window.FarmnetSync || { enabled: false };
 // 운영중 → 임시품절 → 단종 순으로 항상 묶어서 보여준다. (같은 상태 안에서는 직접 정한 순서를 유지)
 const statusRank = (status) => Math.max(0, STATUS.indexOf(status));
 const sortProducts = (list) => list.sort((a, b) => statusRank(a.status) - statusRank(b.status));
@@ -64,6 +65,7 @@ function showToast(message) {
 function imageMarkup(product, className = "thumb") { return product.images?.[0] ? `<span class="${className}"><img src="${escapeHtml(product.images[0])}" alt="${escapeHtml(product.name)}" loading="lazy" decoding="async"></span>` : `<span class="${className}"><span class="image-placeholder">${escapeHtml(product.name?.slice(0, 1) || "F")}</span></span>`; }
 // 바뀐 항목만 저장한다 (기본: 상품). 발행본·열 설정까지 매번 통째로 직렬화하지 않는다.
 function persist(...keys) {
+  if (Sync.enabled) { Sync.save(); return updateBadges(); }
   const targets = keys.length ? keys : ["products"];
   try { targets.forEach((key) => localStorage.setItem(STORAGE[key], JSON.stringify(state[key]))); }
   catch { showToast("브라우저 저장공간이 부족합니다. 오래된 발행본을 정리해주세요."); }
@@ -368,14 +370,36 @@ document.addEventListener("submit", (event) => {
 });
 [productDialog, formDialog, publishDialog, confirmDialog].forEach((dialog) => dialog.addEventListener("click", (event) => { if (event.target !== dialog) return; const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); }));
 
+const mergeColumns = (columns) => [...new Set([...columns.filter((key) => COLUMN_DEFS[key]), ...DEFAULT_COLUMNS])];
+function canRefresh() {
+  const active = document.activeElement;
+  const typing = active && (active.tagName === "TEXTAREA" || (active.tagName === "INPUT" && active.id !== "productSearch" && !["checkbox", "file", "button"].includes(active.type)));
+  return !document.querySelector("dialog[open]") && !typing && !state.draggedColumn && !state.draggedRow && !document.body.classList.contains("is-resizing");
+}
+function renderKeepingSearch() {
+  const searching = document.activeElement?.id === "productSearch";
+  render(); updateBadges();
+  if (searching) { const input = document.querySelector("#productSearch"); input?.focus(); input?.setSelectionRange(input.value.length, input.value.length); }
+}
+
 async function init() {
   try {
+    const publicIssue = new URLSearchParams(location.search).get("catalog");
+    if (Sync.enabled) {
+      // 모두가 함께 쓰는 공용 데이터: 구글 시트(Apps Script)에서 불러온다.
+      document.querySelector(".sidebar-note strong").textContent = "공용 데이터";
+      document.querySelector(".sidebar-note p").textContent = "모든 담당자가 같은 데이터를 함께 수정합니다. 변경은 몇 초 안에 다른 사람 화면에도 반영됩니다.";
+      appView.innerHTML = '<div class="empty-state"><span>…</span><h2>공용 데이터를 불러오는 중입니다.</h2></div>';
+      Sync.attach(state, { normalize: normalizeProduct, sort: sortProducts, mergeColumns, canRefresh, render: renderKeepingSearch, seed: () => sortProducts((window.__PRODUCTS__ || []).map(normalizeProduct)) });
+      if (publicIssue) { await Sync.loadIssue(publicIssue); return renderPublicCatalog(publicIssue); }
+      await Sync.load(); updateBadges(); return render();
+    }
     const savedProducts = JSON.parse(localStorage.getItem(STORAGE.products) || "null"), savedIssues = JSON.parse(localStorage.getItem(STORAGE.issues) || "null"), raw = savedProducts || window.__PRODUCTS__;
     if (!raw) throw new Error("상품 데이터를 불러오지 못했습니다.");
     const mapped = raw.map(normalizeProduct); state.products = sortProducts([...mapped]); const reordered = state.products.some((p, i) => p !== mapped[i]); state.issues = (savedIssues || []).map((issue) => ({ ...issue, products: issue.products.map(normalizeProduct) }));
     state.columns = [...new Set([...state.columns.filter((key) => COLUMN_DEFS[key]), ...DEFAULT_COLUMNS.filter((key) => !state.columns.includes(key))])];
     if (!savedProducts || reordered) persist(); else updateBadges();
-    const publicIssue = new URLSearchParams(location.search).get("catalog"); if (publicIssue) renderPublicCatalog(publicIssue); else render();
-  } catch (error) { appView.innerHTML = `<div class="empty-state"><span>!</span><h2>상품 데이터를 불러오지 못했습니다.</h2><p>${escapeHtml(error.message)}</p></div>`; }
+    if (publicIssue) renderPublicCatalog(publicIssue); else render();
+  } catch (error) { appView.innerHTML = `<div class="empty-state"><span>!</span><h2>상품 데이터를 불러오지 못했습니다.</h2><p>${escapeHtml(error.message)}</p><button class="button primary" onclick="location.reload()">다시 시도</button></div>`; }
 }
 init();

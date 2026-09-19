@@ -90,3 +90,9 @@
 .published-product>.published-detail{margin:0;flex:1 1 auto;justify-content:flex-start}
 .published-detail em{margin-top:auto;padding-top:12px}
 .public-catalog h1{font-size:clamp(1.7rem,4.2vw,2.9rem)}
+
+/* Shared-data sync status */
+.sync-status{margin-left:12px;padding:3px 9px;border-radius:999px;font-style:normal;font-size:.68rem;font-weight:800;background:#e7f5f2;color:var(--teal-dark);white-space:nowrap}
+.sync-status:empty{display:none}
+.sync-status[data-state=saving]{background:#eef1f2;color:#6b7d84}
+.sync-status[data-state=error]{background:#fde8e8;color:var(--red)}
