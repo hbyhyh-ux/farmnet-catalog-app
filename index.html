@@ -32,6 +32,19 @@
 @media(max-width:1100px){.app-shell{grid-template-rows:56px 1fr}.sidebar{top:56px;height:calc(100vh - 56px)}.public-products{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:760px){.topbar{height:52px}.sidebar{top:52px}.detail-edit-layout{display:block}.detail-edit-aside{padding:24px}.detail-edit-aside .detail-image{max-width:260px;margin:auto}.detail-edit-main{padding:26px 20px}.table-guide{overflow:auto;white-space:nowrap}.issue-card{display:block}.issue-card>button{width:100%}.issue-public-link{height:44px;border-left:0;border-top:1px solid var(--line);justify-content:center}.public-products{grid-template-columns:1fr 1fr;gap:11px}.public-catalog main{padding:18px 12px 50px}}
 
+/* Fixed table navigation and revised public catalog */
+.table-scroll{overflow:auto;max-height:calc(100vh - 245px)}
+.table-scroll::-webkit-scrollbar{width:10px;height:0}
+.catalog-table th{position:sticky;top:0;z-index:5}
+.utility-head{z-index:7!important}
+.viewport-scrollbar{position:fixed;left:248px;right:0;bottom:0;height:18px;overflow-x:auto;overflow-y:hidden;background:#edf2f2;border-top:1px solid #cbd8da;z-index:40}
+.viewport-scrollbar>div{height:1px}
+.detail-project{margin:0 0 8px;color:var(--muted);font-size:.72rem;font-weight:800}
+.detail-category{margin:0 0 6px}
+.public-weight{font-weight:800;color:#65777d!important}
+.public-description{margin-top:8px!important;margin-bottom:0!important;color:var(--muted);font-size:.72rem;line-height:1.55;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+@media(max-width:760px){.viewport-scrollbar{left:0}.table-scroll{max-height:calc(100vh - 200px)}}
+
 </style>
   </head>
   <body>
@@ -76,23 +89,15 @@ const COLUMN_DEFS = {
   category: { label: "상품 유형", width: 160 },
   status: { label: "운영 상태", width: 120, type: "status" },
   project: { label: "사업명", width: 230 },
-  organization: { label: "운영기관", width: 150 },
-  manager: { label: "담당자", width: 120 },
   origin: { label: "원산지", width: 120 },
   storage: { label: "보관방법", width: 110 },
   shelfLife: { label: "소비기한", width: 150, type: "date" },
-  barcode: { label: "바코드", width: 150 },
   description: { label: "상품소개", width: 300, type: "textarea" },
   weight: { label: "중량·용량", width: 150 },
-  setPack: { label: "세트 구성", width: 150 },
   boxPack: { label: "박스 입수", width: 130 },
-  wholesalePrice: { label: "공급가", width: 130, type: "money" },
   price: { label: "소비자가", width: 140, type: "money" },
-  shippingMethod: { label: "배송방법", width: 130 },
   shippingFee: { label: "배송비", width: 130, type: "money" },
-  channel: { label: "판매채널", width: 130 },
-  saleLink: { label: "판매링크", width: 260, type: "url" },
-  note: { label: "비고", width: 220, type: "textarea" }
+  saleLink: { label: "판매링크", width: 260, type: "url" }
 };
 const DEFAULT_COLUMNS = Object.keys(COLUMN_DEFS);
 const state = {
@@ -159,7 +164,17 @@ function renderProducts() {
     <section class="panel"><div class="panel-head"><div class="status-filters">${["전체", ...STATUS].map((status) => `<button class="filter-chip ${state.status === status ? "is-active" : ""}" data-status="${status}">${status}<span>${status === "전체" ? state.products.length : counts[status]}</span></button>`).join("")}</div><div class="toolbar"><label class="search-wrap">${icons.search}<input id="productSearch" value="${escapeHtml(state.search)}" placeholder="전체 상품정보 검색"></label><div class="mode-switch"><button class="${state.mode === "view" ? "is-active" : ""}" data-mode="view">${icons.eye}보기모드</button><button class="${state.mode === "edit" ? "is-active" : ""}" data-mode="edit">${icons.edit}수정모드</button></div></div></div>
       <div class="table-guide"><span>↔ 열 머리글 드래그: 순서 변경</span><span>열 경계 드래그: 너비 변경</span><span>⋮⋮ 행 손잡이 드래그: 상품 순서 변경</span></div>
       <div class="table-scroll"><table class="catalog-table ${state.mode === "edit" ? "edit-table" : ""}" style="width:${tableWidth}px"><colgroup><col class="utility-col">${cols.map((key) => `<col data-col-width="${key}" style="width:${state.widths[key] || COLUMN_DEFS[key].width}px">`).join("")}</colgroup><thead><tr><th class="utility-head"><input id="selectAll" type="checkbox" aria-label="현재 목록 전체 선택" ${products.length && products.every((p) => state.selected.has(p.uid)) ? "checked" : ""}></th>${cols.map(columnHeader).join("")}</tr></thead><tbody>${products.map(productRow).join("") || `<tr><td colspan="${cols.length + 1}" class="empty-cell">조건에 맞는 상품이 없습니다.</td></tr>`}</tbody></table></div>
-      <div class="table-footer"><span>총 ${products.length}개 표시 · ${cols.length}개 정보 열</span><span>${state.mode === "edit" ? "입력값을 바꾸면 즉시 저장됩니다." : "상품 행을 누르면 상세 팝업에서 바로 수정할 수 있습니다."}</span></div></section>`;
+      <div class="table-footer"><span>총 ${products.length}개 표시 · ${cols.length}개 정보 열</span><span>${state.mode === "edit" ? "입력값을 바꾸면 즉시 저장됩니다." : "상품 행을 누르면 상세 팝업에서 바로 수정할 수 있습니다."}</span></div></section>
+      <div class="viewport-scrollbar" aria-label="상품표 좌우 스크롤"><div style="width:${tableWidth}px"></div></div>`;
+  setupTableScrolling();
+}
+function setupTableScrolling() {
+  const tableScroll = document.querySelector(".table-scroll"), viewportScroll = document.querySelector(".viewport-scrollbar");
+  if (!tableScroll || !viewportScroll) return;
+  let syncing = false;
+  const sync = (source, target) => { if (syncing) return; syncing = true; target.scrollLeft = source.scrollLeft; requestAnimationFrame(() => { syncing = false; }); };
+  tableScroll.addEventListener("scroll", () => sync(tableScroll, viewportScroll));
+  viewportScroll.addEventListener("scroll", () => sync(viewportScroll, tableScroll));
 }
 function columnHeader(key) { const def = COLUMN_DEFS[key]; return `<th draggable="true" data-column="${key}"><span class="column-drag">⋮⋮</span>${def.label}<span class="resize-handle" data-resize-column="${key}" aria-hidden="true"></span></th>`; }
 function productRow(product) { return `<tr draggable="true" data-row-id="${product.uid}" data-product="${product.uid}"><td class="utility-cell"><span class="row-drag" title="상품 순서 이동">⋮⋮</span><input type="checkbox" data-select="${product.uid}" aria-label="${escapeHtml(product.name)} 발행 선택" ${state.selected.has(product.uid) ? "checked" : ""}></td>${state.columns.filter((key) => COLUMN_DEFS[key]).map((key) => `<td data-cell="${key}">${state.mode === "edit" ? editCell(product, key) : viewCell(product, key)}</td>`).join("")}</tr>`; }
@@ -198,11 +213,11 @@ function openProduct(product, options = {}) {
   const readOnly = Boolean(options.readOnly);
   const image = product.images?.[0] ? `<img src="${escapeHtml(product.images[0])}" alt="${escapeHtml(product.name)}">` : `<span>${escapeHtml(product.name?.slice(0, 1) || "F")}</span>`;
   document.querySelector("#productDialogContent").innerHTML = readOnly
-    ? `<div class="detail-layout"><div class="detail-image">${image}</div><div class="detail-info"><span class="status-pill ${statusClass(product.status)}">${product.status}</span><p class="detail-category">${escapeHtml(product.category || "상품 유형 미입력")}</p><h2>${escapeHtml(product.name)}</h2><p class="detail-description">${escapeHtml(product.description || "상품 설명이 아직 입력되지 않았습니다.").replaceAll("\n", "<br>")}</p><strong class="detail-price">${formatPrice(product.price)}</strong>${detailFacts(product)}${product.saleLink ? `<a class="button primary sales-button" href="${escapeHtml(product.saleLink)}" target="_blank" rel="noopener">판매처에서 보기 ↗</a>` : ""}</div></div>`
+    ? `<div class="detail-layout"><div class="detail-image">${image}</div><div class="detail-info"><p class="detail-project">${escapeHtml(product.project || "사업명 미입력")}</p><p class="detail-category">${escapeHtml(product.category || "상품 유형 미입력")}</p><h2>${escapeHtml(product.name)}</h2><p class="detail-description">${escapeHtml(product.description || "상품 설명이 아직 입력되지 않았습니다.").replaceAll("\n", "<br>")}</p><strong class="detail-price">${formatPrice(product.price)}</strong>${detailFacts(product)}${product.saleLink ? `<a class="button primary sales-button" href="${escapeHtml(product.saleLink)}" target="_blank" rel="noopener">판매처에서 보기 ↗</a>` : ""}</div></div>`
     : `<form id="detailEditForm" data-detail-id="${product.uid}"><div class="detail-edit-layout"><div class="detail-edit-aside"><div id="detailImagePreview" class="detail-image">${image}</div><label class="button secondary image-change-button"><input id="detailImageInput" type="file" accept="image/*">사진 변경</label><p>업로드한 사진은 1:1 비율로 자동 저장됩니다.</p></div><div class="detail-edit-main"><p class="eyebrow">PRODUCT EDIT</p><h2>${escapeHtml(product.name)}</h2><div class="form-grid detail-form-grid">${state.columns.filter((key) => key !== "image" && COLUMN_DEFS[key]).map((key) => fieldMarkup(key, product[key] ?? "", "detail-")).join("")}</div><div class="dialog-actions"><button class="button secondary" type="button" data-close-dialog>닫기</button><button class="button primary" type="submit">변경사항 저장</button></div></div></div></form>`;
   productDialog.showModal();
 }
-function detailFacts(product) { return `<dl>${state.columns.filter((key) => !["image", "name", "description", "price", "saleLink", "status"].includes(key)).map((key) => `<div><dt>${COLUMN_DEFS[key].label}</dt><dd>${escapeHtml(product[key] || "-")}</dd></div>`).join("")}</dl>`; }
+function detailFacts(product) { return `<dl>${state.columns.filter((key) => !["image", "project", "category", "name", "description", "price", "saleLink"].includes(key)).map((key) => `<div><dt>${COLUMN_DEFS[key].label}</dt><dd>${escapeHtml(product[key] || "-")}</dd></div>`).join("")}</dl>`; }
 
 function renderIssues() {
   if (state.openIssue) return renderIssueDetail(state.openIssue);
@@ -214,7 +229,12 @@ function renderIssueDetail(issueId) {
   const counts = Object.fromEntries(STATUS.map((s) => [s, issue.products.filter((p) => p.status === s).length]));
   appView.innerHTML = `<button class="back-button" id="backToIssues">← 월간 발행 목록</button>${pageHead(`${issue.year}년 ${issue.month}월호`, `${issue.publishedAt} 발행 · 발행 당시의 상품 정보입니다.`, `<a class="button primary" href="?catalog=${issue.id}" target="_blank">${icons.external}외부 카탈로그 보기</a>`)}<section class="issue-hero"><div class="issue-cover"><strong>${String(issue.month).padStart(2, "0")}</strong><span>${issue.year}</span></div><div><span class="status-pill active">발행 완료</span><h2>팜넷 카페테리아 상품 리스트</h2><p>총 ${issue.products.length}개 상품 · 운영중 ${counts["운영중"]} · 임시품절 ${counts["임시품절"]} · 단종 ${counts["단종"]}</p></div></section><section class="panel"><div class="panel-head"><div><h2>발행 상품</h2><p>상품을 누르면 발행 당시 정보를 확인할 수 있습니다.</p></div></div><div class="published-grid">${issue.products.map((p) => publishedCard(p, issue.id)).join("")}</div></section>`;
 }
-function publishedCard(product, issueId, publicMode = false) { return `<article class="published-product"><button class="published-detail" data-snapshot="${issueId}" data-snapshot-product="${product.uid}">${imageMarkup(product, "published-thumb")}<span class="status-pill ${statusClass(product.status)}">${product.status}</span><strong>${escapeHtml(product.name)}</strong><small>${escapeHtml(product.category || "상품 유형 미입력")}</small><em>${formatPrice(product.price)}</em></button>${product.saleLink ? `<a class="sales-link" href="${escapeHtml(product.saleLink)}" target="_blank" rel="noopener">판매처에서 보기 ↗</a>` : `<span class="sales-link disabled">판매링크 미등록</span>`}</article>`; }
+function publishedCard(product, issueId, publicMode = false) {
+  const summary = publicMode
+    ? `<strong>${escapeHtml(product.name)}</strong><small class="public-weight">${escapeHtml(product.weight || "중량 미입력")}</small><p class="public-description">${escapeHtml(product.description || "상품 소개가 아직 입력되지 않았습니다.")}</p><em>${formatPrice(product.price)}</em>`
+    : `<span class="status-pill ${statusClass(product.status)}">${product.status}</span><strong>${escapeHtml(product.name)}</strong><small>${escapeHtml(product.category || "상품 유형 미입력")}</small><em>${formatPrice(product.price)}</em>`;
+  return `<article class="published-product"><button class="published-detail" data-snapshot="${issueId}" data-snapshot-product="${product.uid}">${imageMarkup(product, "published-thumb")}${summary}</button>${product.saleLink ? `<a class="sales-link" href="${escapeHtml(product.saleLink)}" target="_blank" rel="noopener">판매처에서 보기 ↗</a>` : `<span class="sales-link disabled">판매링크 미등록</span>`}</article>`;
+}
 function renderPublicCatalog(issueId) {
   document.body.classList.add("public-catalog-mode");
   const issue = state.issues.find((item) => item.id === issueId);
@@ -274,12 +294,31 @@ document.addEventListener("dragstart", (event) => {
   const th = event.target.closest("th[data-column]"); if (th && !event.target.closest(".resize-handle")) { state.draggedColumn = th.dataset.column; event.dataTransfer.effectAllowed = "move"; th.classList.add("is-dragging"); return; }
   const row = event.target.closest("tr[data-row-id]"); if (row && event.target.closest(".row-drag")) { state.draggedRow = row.dataset.rowId; state.justDragged = true; event.dataTransfer.effectAllowed = "move"; row.classList.add("is-dragging"); } else if (row) event.preventDefault();
 });
-document.addEventListener("dragover", (event) => { if (event.target.closest("th[data-column],tr[data-row-id]")) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } });
+document.addEventListener("dragover", (event) => {
+  const th = event.target.closest("th[data-column]");
+  if (th && state.draggedColumn) {
+    event.preventDefault(); event.dataTransfer.dropEffect = "move";
+    const dragged = document.querySelector(`th[data-column="${state.draggedColumn}"]`);
+    if (!dragged || dragged === th) return;
+    const placeAfter = event.clientX > th.getBoundingClientRect().left + th.offsetWidth / 2;
+    const reference = placeAfter ? th.nextElementSibling : th;
+    th.parentElement.insertBefore(dragged, reference);
+    const draggedCol = document.querySelector(`col[data-col-width="${state.draggedColumn}"]`), targetCol = document.querySelector(`col[data-col-width="${th.dataset.column}"]`);
+    if (draggedCol && targetCol) targetCol.parentElement.insertBefore(draggedCol, placeAfter ? targetCol.nextElementSibling : targetCol);
+    document.querySelectorAll("tr[data-row-id]").forEach((row) => {
+      const draggedCell = row.querySelector(`[data-cell="${state.draggedColumn}"]`), targetCell = row.querySelector(`[data-cell="${th.dataset.column}"]`);
+      if (draggedCell && targetCell) row.insertBefore(draggedCell, placeAfter ? targetCell.nextElementSibling : targetCell);
+    });
+    state.columns = [...document.querySelectorAll("th[data-column]")].map((header) => header.dataset.column);
+    return;
+  }
+  if (event.target.closest("tr[data-row-id]")) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }
+});
 document.addEventListener("drop", (event) => {
-  const th = event.target.closest("th[data-column]"); if (th && state.draggedColumn) { event.preventDefault(); const target = th.dataset.column, from = state.columns.indexOf(state.draggedColumn), to = state.columns.indexOf(target); if (from !== to) { const [moved] = state.columns.splice(from, 1); state.columns.splice(to, 0, moved); persist(); renderProducts(); } }
+  const th = event.target.closest("th[data-column]"); if (th && state.draggedColumn) { event.preventDefault(); persist(); }
   const row = event.target.closest("tr[data-row-id]"); if (row && state.draggedRow) { event.preventDefault(); const from = state.products.findIndex((p) => p.uid === state.draggedRow), to = state.products.findIndex((p) => p.uid === row.dataset.rowId); if (from >= 0 && to >= 0 && from !== to) { const [moved] = state.products.splice(from, 1); state.products.splice(to, 0, moved); persist(); renderProducts(); } }
 });
-document.addEventListener("dragend", () => { state.draggedColumn = null; state.draggedRow = null; setTimeout(() => { state.justDragged = false; }, 50); document.querySelectorAll(".is-dragging").forEach((el) => el.classList.remove("is-dragging")); });
+document.addEventListener("dragend", () => { if (state.draggedColumn) persist(); state.draggedColumn = null; state.draggedRow = null; setTimeout(() => { state.justDragged = false; }, 50); document.querySelectorAll(".is-dragging").forEach((el) => el.classList.remove("is-dragging")); });
 
 document.addEventListener("mousedown", (event) => {
   const handle = event.target.closest("[data-resize-column]"); if (!handle) return;

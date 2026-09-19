@@ -22,3 +22,16 @@
 
 @media(max-width:1100px){.app-shell{grid-template-rows:56px 1fr}.sidebar{top:56px;height:calc(100vh - 56px)}.public-products{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:760px){.topbar{height:52px}.sidebar{top:52px}.detail-edit-layout{display:block}.detail-edit-aside{padding:24px}.detail-edit-aside .detail-image{max-width:260px;margin:auto}.detail-edit-main{padding:26px 20px}.table-guide{overflow:auto;white-space:nowrap}.issue-card{display:block}.issue-card>button{width:100%}.issue-public-link{height:44px;border-left:0;border-top:1px solid var(--line);justify-content:center}.public-products{grid-template-columns:1fr 1fr;gap:11px}.public-catalog main{padding:18px 12px 50px}}
+
+/* Fixed table navigation and revised public catalog */
+.table-scroll{overflow:auto;max-height:calc(100vh - 245px)}
+.table-scroll::-webkit-scrollbar{width:10px;height:0}
+.catalog-table th{position:sticky;top:0;z-index:5}
+.utility-head{z-index:7!important}
+.viewport-scrollbar{position:fixed;left:248px;right:0;bottom:0;height:18px;overflow-x:auto;overflow-y:hidden;background:#edf2f2;border-top:1px solid #cbd8da;z-index:40}
+.viewport-scrollbar>div{height:1px}
+.detail-project{margin:0 0 8px;color:var(--muted);font-size:.72rem;font-weight:800}
+.detail-category{margin:0 0 6px}
+.public-weight{font-weight:800;color:#65777d!important}
+.public-description{margin-top:8px!important;margin-bottom:0!important;color:var(--muted);font-size:.72rem;line-height:1.55;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+@media(max-width:760px){.viewport-scrollbar{left:0}.table-scroll{max-height:calc(100vh - 200px)}}
