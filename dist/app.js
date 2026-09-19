@@ -17,6 +17,9 @@ const COLUMN_DEFS = {
   saleLink: { label: "판매링크", width: 260, type: "url" }
 };
 const DEFAULT_COLUMNS = Object.keys(COLUMN_DEFS);
+// 운영중 → 임시품절 → 단종 순으로 항상 묶어서 보여준다. (같은 상태 안에서는 직접 정한 순서를 유지)
+const statusRank = (status) => Math.max(0, STATUS.indexOf(status));
+const sortProducts = (list) => list.sort((a, b) => statusRank(a.status) - statusRank(b.status));
 const state = {
   products: [], issues: [], section: "products", mode: "view", search: "", status: "전체", selected: new Set(), openIssue: null,
   columns: JSON.parse(localStorage.getItem(STORAGE.columns) || "null") || [...DEFAULT_COLUMNS],
@@ -76,21 +79,33 @@ function normalizeProduct(source) {
 }
 
 function renderProducts() {
+  const prevScroll = document.querySelector(".table-scroll"), scrollTop = prevScroll?.scrollTop || 0, scrollLeft = prevScroll?.scrollLeft || 0;
   const products = visibleProducts();
   const counts = Object.fromEntries(STATUS.map((status) => [status, state.products.filter((p) => p.status === status).length]));
   const cols = state.columns.filter((key) => COLUMN_DEFS[key]);
   const tableWidth = 64 + cols.reduce((sum, key) => sum + (state.widths[key] || COLUMN_DEFS[key].width), 0);
   appView.innerHTML = `${pageHead("상품관리 및 발행", "", `<button class="button secondary" id="newProduct">${icons.plus}상품 등록</button><button class="button primary" id="openPublish" ${state.selected.size ? "" : "disabled"}>${icons.send}선택 ${state.selected.size}개 발행</button>`)}
     <section class="panel"><div class="panel-head"><div class="status-filters">${["전체", ...STATUS].map((status) => `<button class="filter-chip ${state.status === status ? "is-active" : ""}" data-status="${status}">${status}<span>${status === "전체" ? state.products.length : counts[status]}</span></button>`).join("")}</div><div class="toolbar"><label class="search-wrap">${icons.search}<input id="productSearch" value="${escapeHtml(state.search)}" placeholder="전체 상품정보 검색"></label><div class="mode-switch"><button class="${state.mode === "view" ? "is-active" : ""}" data-mode="view">${icons.eye}보기모드</button><button class="${state.mode === "edit" ? "is-active" : ""}" data-mode="edit">${icons.edit}수정모드</button></div></div></div>
-      <div class="table-scroll"><table class="catalog-table ${state.mode === "edit" ? "edit-table" : ""}" style="width:${tableWidth}px"><colgroup><col class="utility-col">${cols.map((key) => `<col data-col-width="${key}" style="width:${state.widths[key] || COLUMN_DEFS[key].width}px">`).join("")}</colgroup><thead><tr><th class="utility-head"><input id="selectAll" type="checkbox" aria-label="현재 목록 전체 선택" ${products.length && products.every((p) => state.selected.has(p.uid)) ? "checked" : ""}></th>${cols.map(columnHeader).join("")}</tr></thead><tbody>${products.map(productRow).join("") || `<tr><td colspan="${cols.length + 1}" class="empty-cell">조건에 맞는 상품이 없습니다.</td></tr>`}</tbody></table></div>
+      <div class="table-scroll"><table class="catalog-table ${state.mode === "edit" ? "edit-table" : ""}" style="width:${tableWidth}px"><colgroup><col class="utility-col">${cols.map((key) => `<col data-col-width="${key}" style="width:${state.widths[key] || COLUMN_DEFS[key].width}px">`).join("")}</colgroup><thead><tr><th class="utility-head"><input id="selectAll" type="checkbox" aria-label="현재 목록 전체 선택" ${products.length && products.every((p) => state.selected.has(p.uid)) ? "checked" : ""}></th>${cols.map(columnHeader).join("")}</tr></thead><tbody>${bodyRows(products, cols)}</tbody></table></div>
       <div class="table-footer"><span>총 ${products.length}개 표시 · ${cols.length}개 정보 열</span><span>열 머리글 드래그: 순서 · 열 경계 드래그: 너비 · ⋮⋮ 드래그: 행 순서</span><span>${state.mode === "edit" ? "입력값을 바꾸면 즉시 저장됩니다." : "상품 행을 누르면 상세 팝업이 열립니다."}</span></div></section>
       <div class="viewport-scrollbar" aria-label="상품표 좌우 스크롤"><div style="width:${tableWidth}px"></div></div>`;
   setupTableScrolling();
+  const nextScroll = document.querySelector(".table-scroll"); if (nextScroll && (scrollTop || scrollLeft)) { nextScroll.scrollTop = scrollTop; nextScroll.scrollLeft = scrollLeft; document.querySelector(".viewport-scrollbar").scrollLeft = scrollLeft; }
+}
+function bodyRows(products, cols) {
+  const span = cols.length + 1, searching = Boolean(state.search.trim());
+  const html = STATUS.filter((status) => state.status === "전체" || state.status === status).map((status) => {
+    const rows = products.filter((p) => p.status === status);
+    if (!rows.length && searching) return "";
+    const head = `<tr class="group-row ${statusClass(status)}" data-group="${status}"><td colspan="${span}"><div class="group-label"><i class="status-dot ${statusClass(status)}"></i><strong>${status}</strong><span>${rows.length}개</span></div></td></tr>`;
+    return head + (rows.map(productRow).join("") || `<tr class="group-empty" data-group="${status}"><td colspan="${span}"><em>상품을 여기로 끌어다 놓으면 ${status} 상태로 바뀝니다.</em></td></tr>`);
+  }).join("");
+  return html || `<tr><td colspan="${span}" class="empty-cell">조건에 맞는 상품이 없습니다.</td></tr>`;
 }
 function refreshRows() {
   const products = visibleProducts(), cols = state.columns.filter((key) => COLUMN_DEFS[key]);
   const tbody = document.querySelector(".catalog-table tbody"); if (!tbody) return renderProducts();
-  tbody.innerHTML = products.map(productRow).join("") || `<tr><td colspan="${cols.length + 1}" class="empty-cell">조건에 맞는 상품이 없습니다.</td></tr>`;
+  tbody.innerHTML = bodyRows(products, cols);
   const footer = document.querySelector(".table-footer span"); if (footer) footer.textContent = `총 ${products.length}개 표시 · ${cols.length}개 정보 열`;
   syncSelection(products);
 }
@@ -107,11 +122,11 @@ function setupTableScrolling() {
   viewportScroll.addEventListener("scroll", () => sync(viewportScroll, tableScroll));
 }
 function columnHeader(key) { const def = COLUMN_DEFS[key]; return `<th data-column="${key}" title="드래그: 열 순서 변경"><span class="column-drag">⋮⋮</span>${def.label}<span class="resize-handle" data-resize-column="${key}" aria-hidden="true"></span></th>`; }
-function productRow(product) { return `<tr data-row-id="${product.uid}" data-product="${product.uid}"><td class="utility-cell"><span class="row-drag" title="상품 순서 이동">⋮⋮</span><input type="checkbox" data-select="${product.uid}" aria-label="${escapeHtml(product.name)} 발행 선택" ${state.selected.has(product.uid) ? "checked" : ""}></td>${state.columns.filter((key) => COLUMN_DEFS[key]).map((key) => `<td data-cell="${key}">${state.mode === "edit" ? editCell(product, key) : viewCell(product, key)}</td>`).join("")}</tr>`; }
+function productRow(product) { return `<tr class="row-${statusClass(product.status)}" data-row-id="${product.uid}" data-product="${product.uid}"><td class="utility-cell"><span class="row-drag" title="상품 순서 이동">⋮⋮</span><input type="checkbox" data-select="${product.uid}" aria-label="${escapeHtml(product.name)} 발행 선택" ${state.selected.has(product.uid) ? "checked" : ""}></td>${state.columns.filter((key) => COLUMN_DEFS[key]).map((key) => `<td data-cell="${key}">${state.mode === "edit" ? editCell(product, key) : viewCell(product, key)}</td>`).join("")}</tr>`; }
 function viewCell(product, key) {
   const def = COLUMN_DEFS[key], value = product[key];
   if (def.type === "image") return imageMarkup(product);
-  if (def.type === "status") return `<span class="status-pill ${statusClass(value)}">${escapeHtml(value || "운영중")}</span>`;
+  if (def.type === "status") return `<select class="status-select ${statusClass(value)}" data-edit-id="${product.uid}" data-field="status" aria-label="운영 상태 변경">${STATUS.map((s) => `<option ${s === (value || "운영중") ? "selected" : ""}>${s}</option>`).join("")}</select>`;
   if (def.type === "money") return `<strong>${formatPrice(value)}</strong>`;
   if (def.type === "url") return value ? `<a class="table-link" href="${escapeHtml(value)}" target="_blank" rel="noopener" title="${escapeHtml(value)}">판매처 열기 ↗</a>` : '<span class="muted">-</span>';
   if (def.type === "textarea") return `<span class="cell-clamp" title="${escapeHtml(value || "")}">${escapeHtml(value || "-")}</span>`;
@@ -214,7 +229,7 @@ document.addEventListener("input", (event) => {
 document.addEventListener("change", async (event) => {
   if (event.target.matches("[data-select]")) { event.target.checked ? state.selected.add(event.target.dataset.select) : state.selected.delete(event.target.dataset.select); return syncSelection(); }
   if (event.target.id === "selectAll") { visibleProducts().forEach((p) => event.target.checked ? state.selected.add(p.uid) : state.selected.delete(p.uid)); document.querySelectorAll("[data-select]").forEach((box) => { box.checked = event.target.checked; }); return syncSelection(); }
-  if (event.target.matches("[data-edit-id]")) { const product = state.products.find((p) => p.uid === event.target.dataset.editId); if (!product) return; const field = event.target.dataset.field; product[field] = COLUMN_DEFS[field].type === "money" ? numberValue(event.target.value) : event.target.value; persist(); showToast(`${product.name || "상품"} 정보가 저장되었습니다.`); }
+  if (event.target.matches("[data-edit-id]")) { const product = state.products.find((p) => p.uid === event.target.dataset.editId); if (!product) return; const field = event.target.dataset.field; product[field] = COLUMN_DEFS[field].type === "money" ? numberValue(event.target.value) : event.target.value; if (field === "status") sortProducts(state.products); persist(); showToast(field === "status" ? `${(product.name || "상품").replace(/\s+/g, " ")}: ${product.status}(으)로 이동했습니다.` : `${product.name || "상품"} 정보가 저장되었습니다.`); if (field === "status") renderProducts(); }
   if (event.target.matches("[data-image-id]")) { const product = state.products.find((p) => p.uid === event.target.dataset.imageId); if (product) { await replaceImage(product, event.target.files?.[0], ""); renderProducts(); } }
   if (event.target.id === "newProductImage" && event.target.files?.[0]) { const value = await squareImage(event.target.files[0]); event.target.dataset.processed = value; document.querySelector("#newProductPreview").innerHTML = `<img src="${value}" alt="미리보기">`; }
   if (event.target.id === "detailImageInput") { const product = state.products.find((p) => p.uid === document.querySelector("#detailEditForm")?.dataset.detailId); if (product) await replaceImage(product, event.target.files?.[0], "#detailImagePreview"); }
@@ -246,7 +261,7 @@ document.addEventListener("dragover", (event) => {
     state.columns = [...document.querySelectorAll("th[data-column]")].map((header) => header.dataset.column);
     return;
   }
-  const row = event.target.closest("tr[data-row-id]");
+  const row = event.target.closest("tr[data-row-id],tr[data-group]");
   if (row && state.draggedRow) {
     event.preventDefault(); event.dataTransfer.dropEffect = "move";
     document.querySelectorAll(".drop-target").forEach((el) => el.classList.remove("drop-target"));
@@ -256,13 +271,28 @@ document.addEventListener("dragover", (event) => {
 document.addEventListener("drop", (event) => {
   if (!(event.target instanceof Element)) return;
   if (state.draggedColumn) { event.preventDefault(); return; }
-  const row = event.target.closest("tr[data-row-id]");
-  if (row && state.draggedRow) {
-    event.preventDefault();
-    const from = state.products.findIndex((p) => p.uid === state.draggedRow), to = state.products.findIndex((p) => p.uid === row.dataset.rowId);
-    if (from >= 0 && to >= 0 && from !== to) { const [moved] = state.products.splice(from, 1); state.products.splice(to, 0, moved); persist(); renderProducts(); }
-  }
+  const target = event.target.closest("tr[data-row-id],tr[data-group]");
+  if (target && state.draggedRow) { event.preventDefault(); moveProduct(state.draggedRow, target); }
 });
+// 행을 놓은 위치의 운영 상태로 바뀐다. 상태 머리글에 놓으면 그 그룹의 맨 위로 들어간다.
+function moveProduct(uid, target) {
+  const from = state.products.findIndex((p) => p.uid === uid); if (from < 0) return;
+  const moved = state.products[from], previous = moved.status;
+  if (target.dataset.rowId) {
+    if (target.dataset.rowId === uid) return;
+    const to = state.products.findIndex((p) => p.uid === target.dataset.rowId); if (to < 0) return;
+    const targetStatus = state.products[to].status;
+    state.products.splice(from, 1); moved.status = targetStatus;
+    const at = state.products.findIndex((p) => p.uid === target.dataset.rowId);
+    state.products.splice(from < to ? at + 1 : at, 0, moved);
+  } else {
+    state.products.splice(from, 1); moved.status = target.dataset.group;
+    const first = state.products.findIndex((p) => statusRank(p.status) >= statusRank(moved.status));
+    state.products.splice(first < 0 ? state.products.length : first, 0, moved);
+  }
+  sortProducts(state.products); persist(); renderProducts();
+  if (moved.status !== previous) showToast(`${(moved.name || "상품").replace(/\s+/g, " ")}: ${previous} → ${moved.status}`);
+}
 document.addEventListener("dragend", () => {
   if (state.draggedColumn) persist("columns");
   state.draggedColumn = null; state.draggedRow = null; setTimeout(() => { state.justDragged = false; }, 50);
@@ -297,12 +327,12 @@ document.addEventListener("mouseup", disarmDrag);
 document.querySelector("#productForm").addEventListener("submit", async (event) => {
   event.preventDefault(); const data = Object.fromEntries(new FormData(event.currentTarget)); const product = normalizeProduct({ uid: uid(), images: event.currentTarget.image.dataset.processed ? [event.currentTarget.image.dataset.processed] : [] });
   state.columns.forEach((key) => { if (key === "image") return; const value = data[key] ?? ""; product[key] = COLUMN_DEFS[key].type === "money" ? numberValue(value) : value; });
-  state.products.unshift(product); persist(); formDialog.close(); renderProducts(); showToast("새 상품이 등록되었습니다.");
+  state.products.unshift(product); sortProducts(state.products); persist(); formDialog.close(); renderProducts(); showToast("새 상품이 등록되었습니다.");
 });
 document.addEventListener("submit", (event) => {
   if (event.target.id !== "detailEditForm") return; event.preventDefault(); const product = state.products.find((p) => p.uid === event.target.dataset.detailId); if (!product) return;
   const data = Object.fromEntries(new FormData(event.target)); state.columns.forEach((key) => { if (key === "image") return; const value = data[`detail-${key}`] ?? ""; product[key] = COLUMN_DEFS[key].type === "money" ? numberValue(value) : value; });
-  persist(); productDialog.close(); renderProducts(); showToast("상품 상세정보를 저장했습니다.");
+  sortProducts(state.products); persist(); productDialog.close(); renderProducts(); showToast("상품 상세정보를 저장했습니다.");
 });
 [productDialog, formDialog, publishDialog].forEach((dialog) => dialog.addEventListener("click", (event) => { const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); }));
 
@@ -310,9 +340,9 @@ async function init() {
   try {
     const savedProducts = JSON.parse(localStorage.getItem(STORAGE.products) || "null"), savedIssues = JSON.parse(localStorage.getItem(STORAGE.issues) || "null"), raw = savedProducts || window.__PRODUCTS__;
     if (!raw) throw new Error("상품 데이터를 불러오지 못했습니다.");
-    state.products = raw.map(normalizeProduct); state.issues = (savedIssues || []).map((issue) => ({ ...issue, products: issue.products.map(normalizeProduct) }));
+    const mapped = raw.map(normalizeProduct); state.products = sortProducts([...mapped]); const reordered = state.products.some((p, i) => p !== mapped[i]); state.issues = (savedIssues || []).map((issue) => ({ ...issue, products: issue.products.map(normalizeProduct) }));
     state.columns = [...new Set([...state.columns.filter((key) => COLUMN_DEFS[key]), ...DEFAULT_COLUMNS.filter((key) => !state.columns.includes(key))])];
-    if (!savedProducts) persist(); else updateBadges();
+    if (!savedProducts || reordered) persist(); else updateBadges();
     const publicIssue = new URLSearchParams(location.search).get("catalog"); if (publicIssue) renderPublicCatalog(publicIssue); else render();
   } catch (error) { appView.innerHTML = `<div class="empty-state"><span>!</span><h2>상품 데이터를 불러오지 못했습니다.</h2><p>${escapeHtml(error.message)}</p></div>`; }
 }
