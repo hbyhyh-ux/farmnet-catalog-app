@@ -189,10 +189,10 @@ function publishedCard(product, issueId, publicMode = false) {
     : `<span class="status-pill ${statusClass(product.status)}">${product.status}</span><strong>${escapeHtml(product.name)}</strong><small>${escapeHtml(product.category || "상품 유형 미입력")}</small><em>${formatPrice(product.price)}</em>`;
   return `<article class="published-product"><button class="published-detail" data-snapshot="${issueId}" data-snapshot-product="${product.uid}">${imageMarkup(product, "published-thumb")}${summary}</button>${product.saleLink ? `<a class="sales-link" href="${escapeHtml(product.saleLink)}" target="_blank" rel="noopener">판매처에서 보기 ↗</a>` : `<span class="sales-link disabled">판매링크 미등록</span>`}</article>`;
 }
-function renderPublicCatalog(issueId) {
-  document.body.classList.add("public-catalog-mode");
+function renderPublicCatalog(issueId, failed = false) {
+  document.body.classList.add("public-catalog-mode"); document.documentElement.classList.remove("is-catalog"); document.querySelector("#catalogSplash")?.remove();
   const issue = state.issues.find((item) => item.id === issueId);
-  if (!issue) { appView.innerHTML = `<div class="public-empty"><img class="public-empty-icon" src="assets/icon.png" alt=""><h1>이 카탈로그를 불러올 수 없습니다.</h1><p>현재 HTML 초안은 발행한 브라우저에만 데이터가 저장됩니다.<br>외부 공유 운영을 위해서는 공용 데이터베이스 연결이 필요합니다.</p></div>`; return; }
+  if (!issue) { appView.innerHTML = `<div class="public-empty"><img class="public-empty-icon" src="assets/icon.png" alt=""><h1>${failed ? "카탈로그를 불러오지 못했습니다." : "이 카탈로그를 찾을 수 없습니다."}</h1><p>${failed ? "네트워크 상태를 확인하고 다시 시도해주세요." : "아직 발행되지 않았거나 주소가 올바르지 않습니다."}</p>${failed ? '<button class="button primary" onclick="location.reload()">다시 시도</button>' : ""}</div>`; return; }
   appView.innerHTML = `<div class="public-catalog"><header><div class="public-brand"><img class="brand-mark" src="assets/icon.png" alt=""><strong>FAMNET CAFETERIA</strong></div><p>${issue.year} MONTHLY COLLECTION</p><h1>${issue.month}월의 팜넷 상품</h1><span>${issue.products.length}개 상품</span></header><main><div class="public-products">${issue.products.map((p) => publishedCard(p, issue.id, true)).join("")}</div></main></div>`;
 }
 
@@ -382,6 +382,19 @@ function renderKeepingSearch() {
   if (searching) { const input = document.querySelector("#productSearch"); input?.focus(); input?.setSelectionRange(input.value.length, input.value.length); }
 }
 
+// 외부 카탈로그: 전에 본 적 있으면 저장해 둔 화면을 바로 보여주고, 최신 내용은 뒤에서 받아 달라졌을 때만 갱신한다.
+async function loadPublicCatalog(id) {
+  const cacheKey = `farmnet-catalog-${id}`;
+  let cached = null; try { cached = JSON.parse(localStorage.getItem(cacheKey) || "null"); } catch {}
+  if (cached) { state.issues = [cached]; renderPublicCatalog(id); }
+  try {
+    const fresh = await Sync.loadIssue(id);
+    if (!fresh) { if (cached) try { localStorage.removeItem(cacheKey); } catch {} state.issues = []; return renderPublicCatalog(id); }
+    try { localStorage.setItem(cacheKey, JSON.stringify(fresh)); } catch {}
+    if (!cached || JSON.stringify(cached) !== JSON.stringify(fresh)) { state.issues = [fresh]; renderPublicCatalog(id); }
+  } catch { if (!cached) { state.issues = []; renderPublicCatalog(id, true); } }
+}
+
 async function init() {
   try {
     const publicIssue = new URLSearchParams(location.search).get("catalog");
@@ -391,7 +404,7 @@ async function init() {
       document.querySelector(".sidebar-note p").textContent = "모든 담당자가 같은 데이터를 함께 수정합니다. 변경은 몇 초 안에 다른 사람 화면에도 반영됩니다.";
       appView.innerHTML = '<div class="empty-state"><span>…</span><h2>공용 데이터를 불러오는 중입니다.</h2></div>';
       Sync.attach(state, { normalize: normalizeProduct, sort: sortProducts, mergeColumns, canRefresh, render: renderKeepingSearch, seed: () => sortProducts((window.__PRODUCTS__ || []).map(normalizeProduct)) });
-      if (publicIssue) { await Sync.loadIssue(publicIssue); return renderPublicCatalog(publicIssue); }
+      if (publicIssue) return loadPublicCatalog(publicIssue);
       await Sync.load(); updateBadges(); return render();
     }
     const savedProducts = JSON.parse(localStorage.getItem(STORAGE.products) || "null"), savedIssues = JSON.parse(localStorage.getItem(STORAGE.issues) || "null"), raw = savedProducts || window.__PRODUCTS__;

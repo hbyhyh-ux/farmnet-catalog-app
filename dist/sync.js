@@ -126,7 +126,9 @@
     setStatus("saved");
   };
   Sync.loadIssue = async (id) => {
-    const { issue } = await api("GET", { action: "issue", id });
-    state.issues = issue ? [{ ...issue, products: issue.products.map((p) => hooks.normalize(p)) }] : [];
+    let data = null;
+    try { data = await window.__catalogPromise; } catch { /* 미리 시작한 요청이 실패하면 아래에서 한 번 더 시도한다 */ }
+    if (!data?.ok) data = await api("GET", { action: "issue", id });
+    return data.issue ? { ...data.issue, products: data.issue.products.map((p) => hooks.normalize(p)) } : null;
   };
 })();

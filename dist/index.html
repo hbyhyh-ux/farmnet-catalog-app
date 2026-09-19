@@ -7,14 +7,36 @@
     <title>팜넷 상품관리 및 발행</title>
     <link rel="icon" type="image/png" href="assets/icon.png" />
     <link rel="apple-touch-icon" href="assets/icon.png" />
+    <link rel="preconnect" href="https://script.google.com" />
+    <link rel="preconnect" href="https://script.googleusercontent.com" />
     <link rel="stylesheet" href="styles.css" />
+    <script src="config.js"></script>
+    <script>
+      // 외부 카탈로그 링크: 스크립트가 로드되기 전에 관리 화면이 비치지 않도록 즉시 표시를 전환하고, 데이터 요청도 여기서 미리 시작한다.
+      (function () {
+        var id = new URLSearchParams(location.search).get("catalog");
+        if (!id) return;
+        document.documentElement.classList.add("is-catalog");
+        if (window.FARMNET_API) window.__catalogPromise = fetch(window.FARMNET_API + "?action=issue&id=" + encodeURIComponent(id), { cache: "no-store" }).then(function (r) { return r.json(); });
+        if (window.__catalogPromise) window.__catalogPromise.catch(function () {});
+      })();
+    </script>
   </head>
   <body>
+    <div id="catalogSplash" class="public-catalog" aria-busy="true">
+      <header><div class="public-brand"><img class="brand-mark" src="assets/icon.png" alt=""><strong>FAMNET CAFETERIA</strong></div><p id="splashYear"></p><h1 id="splashTitle"></h1><span>상품을 불러오는 중…</span></header>
+      <main><div class="public-products"><i class="skeleton-card"></i><i class="skeleton-card"></i><i class="skeleton-card"></i><i class="skeleton-card"></i><i class="skeleton-card"></i><i class="skeleton-card"></i><i class="skeleton-card"></i><i class="skeleton-card"></i></div></main>
+    </div>
+    <script>
+      (function () {
+        var m = /^(\d{4})-(\d{1,2})$/.exec(new URLSearchParams(location.search).get("catalog") || "");
+        if (m) { document.getElementById("splashYear").textContent = m[1] + " MONTHLY COLLECTION"; document.getElementById("splashTitle").textContent = Number(m[2]) + "월의 팜넷 상품"; }
+      })();
+    </script>
     <div class="app-shell">
       <header class="topbar">
         <a class="brand" href="./" aria-label="팜넷 상품관리 홈"><img class="brand-mark" src="assets/icon.png" alt=""><span><strong>팜넷</strong><small>상품관리 및 발행</small></span></a>
         <div class="topbar-title"><strong>팜넷 카페테리아</strong><span>월간 상품 리스트 관리</span><em class="sync-status" id="syncStatus" role="status"></em></div>
-        <div class="profile"><span>김</span><div><strong>김담당</strong><small>상품 관리자</small></div></div>
       </header>
       <aside class="sidebar">
         <nav aria-label="주요 메뉴"><p class="nav-label">MENU</p><button class="nav-item is-active" data-section="products"><span data-icon="box"></span>상품관리 및 발행 <em id="productCountBadge">0</em></button><button class="nav-item" data-section="issues"><span data-icon="calendar"></span>월간 발행 <em id="issueCountBadge">0</em></button></nav>
@@ -48,6 +70,6 @@
       </div>
     </dialog>
 
-    <div class="toast" id="toast" popover="manual" role="status" aria-live="polite"></div><script src="config.js" defer></script><script src="data/products.js" defer></script><script src="sync.js" defer></script><script src="app.js" defer></script>
+    <div class="toast" id="toast" popover="manual" role="status" aria-live="polite"></div><script src="data/products.js" defer></script><script src="sync.js" defer></script><script src="app.js" defer></script>
   </body>
 </html>

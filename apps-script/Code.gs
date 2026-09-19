@@ -28,8 +28,8 @@ function doGet(e) {
   try {
     const action = (e && e.parameter && e.parameter.action) || "load";
     if (action === "version") return json_({ ok: true, version: version_() });
+    if (action === "issue") return issueResponse_(e.parameter.id);
     ensureSheets_();
-    if (action === "issue") return json_({ ok: true, version: version_(), issue: readIssue_(e.parameter.id) });
     return json_(Object.assign({ ok: true, version: version_() }, readAll_()));
   } catch (error) { return json_({ ok: false, error: String(error && error.message || error) }); }
 }
@@ -53,6 +53,16 @@ function doPost(e) {
 function authorize() { ensureSheets_(); folder_(); }
 
 // ---------- 읽기 ----------
+// 외부에 공유되는 월호 조회는 자주, 여러 명이 열기 때문에 결과를 잠시 캐시해 시트 읽기를 건너뛴다. (발행하면 즉시 지운다)
+function issueResponse_(id) {
+  const cache = CacheService.getScriptCache(), key = "issue:" + id, hit = cache.get(key);
+  if (hit) return ContentService.createTextOutput(hit).setMimeType(ContentService.MimeType.JSON);
+  ensureSheets_();
+  const issue = readIssue_(id), text = JSON.stringify({ ok: true, issue: issue });
+  if (issue && text.length < 90000) { try { cache.put(key, text, 1800); } catch (ignore) {} }
+  return ContentService.createTextOutput(text).setMimeType(ContentService.MimeType.JSON);
+}
+
 function readAll_() {
   const issues = readTable_(SHEETS.issues).map(function (row) { return { id: String(row.id), year: Number(row.year), month: Number(row.month), publishedAt: String(row.publishedAt), products: [] }; });
   const byId = {}; issues.forEach(function (issue) { byId[issue.id] = issue; });
@@ -121,7 +131,10 @@ function applyOps_(ops) {
     }
   });
   if (db.dirty.products) writeTable_(SHEETS.products, db.products.map(function (p, i) { return Object.assign({ order: i }, p); }));
-  if (db.dirty.issues) { writeTable_(SHEETS.issues, db.issues); writeTable_(SHEETS.issueProducts, db.issueProducts); }
+  if (db.dirty.issues) {
+    writeTable_(SHEETS.issues, db.issues); writeTable_(SHEETS.issueProducts, db.issueProducts);
+    CacheService.getScriptCache().removeAll(db.issues.map(function (row) { return "issue:" + row.id; }));
+  }
   if (db.dirty.settings) writeTable_(SHEETS.settings, db.settings);
 }
 
