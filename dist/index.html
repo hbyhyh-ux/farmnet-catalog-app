@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="팜넷 상품 마스터와 월간 카탈로그를 관리하고 관계사에 발행하는 웹앱 초안" />
+    <title>팜넷 월간 상품 카탈로그</title>
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app" class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="팜넷 카탈로그 홈">
+          <span class="brand-mark" aria-hidden="true">F</span>
+          <span><strong>팜넷</strong><small>상품 카탈로그</small></span>
+        </a>
+        <div class="view-switch" role="group" aria-label="화면 전환">
+          <button class="view-btn is-active" data-view="admin">운영자 화면</button>
+          <button class="view-btn" data-view="public">관계사 화면</button>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-button" id="notificationButton" aria-label="알림">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
+            <span class="notification-dot"></span>
+          </button>
+          <div class="profile"><span>김</span><div><strong>김담당</strong><small>카탈로그 관리자</small></div></div>
+        </div>
+      </header>
+
+      <aside class="sidebar" id="sidebar">
+        <nav aria-label="관리자 메뉴">
+          <p class="nav-label">운영</p>
+          <button class="nav-item" data-section="dashboard"><span data-icon="grid"></span>대시보드</button>
+          <button class="nav-item" data-section="products"><span data-icon="box"></span>상품 관리 <em id="productCountBadge">27</em></button>
+          <button class="nav-item is-active" data-section="issues"><span data-icon="calendar"></span>월간 발행</button>
+          <p class="nav-label">관리</p>
+          <button class="nav-item" data-section="partners"><span data-icon="users"></span>관계사</button>
+          <button class="nav-item" data-section="settings"><span data-icon="settings"></span>설정</button>
+        </nav>
+        <div class="sidebar-note">
+          <span class="note-icon">i</span>
+          <strong>프로토타입</strong>
+          <p>현재 변경사항은 브라우저에만 임시 반영됩니다.</p>
+        </div>
+      </aside>
+
+      <main class="main" id="mainContent" tabindex="-1">
+        <section id="adminView" aria-live="polite"></section>
+        <section id="publicView" class="is-hidden" aria-live="polite"></section>
+      </main>
+    </div>
+
+    <dialog id="productDialog" class="product-dialog">
+      <button class="dialog-close" data-close-dialog aria-label="닫기">×</button>
+      <div id="productDialogContent"></div>
+    </dialog>
+
+    <dialog id="publishDialog" class="publish-dialog">
+      <div class="publish-visual"><span>✓</span></div>
+      <h2>9월호를 발행할까요?</h2>
+      <p>현재 포함된 상품과 공개 정보가 스냅샷으로 저장됩니다. 발행 후 수정은 새 버전으로 기록됩니다.</p>
+      <div class="publish-summary"><span>공개 상품 <strong id="publishProductCount">0개</strong></span><span>공개 방식 <strong>링크 전용</strong></span></div>
+      <div class="dialog-actions"><button class="button secondary" data-close-dialog>취소</button><button class="button primary" id="confirmPublish">지금 발행</button></div>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="app.js" defer></script>
+  </body>
+</html>
