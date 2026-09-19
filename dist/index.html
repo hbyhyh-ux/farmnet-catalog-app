@@ -11,7 +11,7 @@
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <a class="brand" href="#" aria-label="팜넷 상품관리 홈"><span class="brand-mark">F</span><span><strong>팜넷</strong><small>상품관리 및 발행</small></span></a>
+        <a class="brand" href="./" aria-label="팜넷 상품관리 홈"><span class="brand-mark">F</span><span><strong>팜넷</strong><small>상품관리 및 발행</small></span></a>
         <div class="topbar-title"><strong>팜넷 카페테리아</strong><span>월간 상품 리스트 관리</span></div>
         <div class="profile"><span>김</span><div><strong>김담당</strong><small>상품 관리자</small></div></div>
       </header>
@@ -21,25 +21,25 @@
       </aside>
       <main class="main" id="mainContent" tabindex="-1"><section id="appView" aria-live="polite"></section></main>
     </div>
+
     <dialog id="productDialog" class="dialog product-dialog"><button class="dialog-close" data-close-dialog aria-label="닫기">×</button><div id="productDialogContent"></div></dialog>
+
     <dialog id="formDialog" class="dialog form-dialog">
       <button class="dialog-close" data-close-dialog aria-label="닫기">×</button>
-      <form id="productForm"><p class="eyebrow">NEW PRODUCT</p><h2>상품 등록</h2><p class="dialog-copy">등록 후 수정모드에서 표 안의 정보를 바로 고칠 수 있습니다.</p>
-        <div class="form-grid">
-          <label class="wide"><span>상품명 *</span><input name="name" required placeholder="상품명을 입력하세요" /></label>
-          <label><span>상품 유형</span><input name="category" placeholder="예: 식육추출가공품" /></label><label><span>운영 상태</span><select name="status"><option>운영중</option><option>임시품절</option><option>단종</option></select></label>
-          <label><span>원산지</span><input name="origin" placeholder="예: 남원산" /></label><label><span>보관방법</span><input name="storage" placeholder="예: 상온" /></label>
-          <label><span>중량·용량</span><input name="weight" placeholder="예: 500g" /></label><label><span>소비기한</span><input name="shelfLife" placeholder="예: 제조일로부터 12개월" /></label>
-          <label><span>소비자가</span><input name="price" type="number" min="0" step="100" placeholder="8500" /></label><label><span>박스 입수</span><input name="boxPack" placeholder="예: 20개입" /></label>
-          <label class="wide"><span>상품 설명</span><textarea name="description" rows="4" placeholder="상품의 특징을 입력하세요"></textarea></label>
-        </div><div class="dialog-actions"><button class="button secondary" type="button" data-close-dialog>취소</button><button class="button primary" type="submit">상품 등록</button></div>
+      <form id="productForm">
+        <p class="eyebrow">NEW PRODUCT</p><h2>상품 등록</h2><p class="dialog-copy">사진은 가운데를 기준으로 자동 잘라 1:1 비율로 저장합니다.</p>
+        <label class="image-upload-card"><input id="newProductImage" name="image" type="file" accept="image/*"><span id="newProductPreview" class="image-upload-preview">＋</span><strong>상품 사진 선택</strong><small>JPG, PNG, WebP</small></label>
+        <div id="registrationFields" class="form-grid"></div>
+        <div class="dialog-actions"><button class="button secondary" type="button" data-close-dialog>취소</button><button class="button primary" type="submit">상품 등록</button></div>
       </form>
     </dialog>
+
     <dialog id="publishDialog" class="dialog publish-dialog">
       <button class="dialog-close" data-close-dialog aria-label="닫기">×</button><div class="publish-icon">✓</div><p class="eyebrow">MONTHLY ISSUE</p><h2>선택 상품을 발행할까요?</h2>
-      <p class="dialog-copy"><strong id="publishProductCount">0개</strong> 상품이 선택한 월호에 읽기 전용으로 저장됩니다.</p><div class="month-picker"><label><span>년도</span><select id="publishYear"></select></label><label><span>월</span><select id="publishMonth"></select></label></div>
+      <p class="dialog-copy"><strong id="publishProductCount">0개</strong> 상품이 선택한 월호에 읽기 전용 스냅샷으로 저장됩니다.</p><div class="month-picker"><label><span>년도</span><select id="publishYear"></select></label><label><span>월</span><select id="publishMonth"></select></label></div>
       <p class="publish-note">같은 월호가 있으면 최신 내용으로 교체됩니다.</p><div class="dialog-actions"><button class="button secondary" data-close-dialog>취소</button><button class="button primary" id="confirmPublish">발행하기</button></div>
     </dialog>
+
     <div class="toast" id="toast" role="status" aria-live="polite"></div><script src="app.js" defer></script>
   </body>
 </html>
