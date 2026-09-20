@@ -105,3 +105,11 @@
 @keyframes shimmer{to{background-position:-150% 0}}
 @media(prefers-reduced-motion:reduce){.skeleton-card{animation:none}}
 .public-empty .button{margin-top:18px}
+
+/* Frozen first data column (next to the checkbox column) */
+.catalog-table th.frozen-col{left:64px;z-index:6;border-right:1px solid #dfe8e9}
+.catalog-table td.frozen-col{position:sticky;left:64px;z-index:2;background:#fff;border-right:1px solid #dfe8e9}
+.catalog-table tbody tr:hover td.frozen-col{background:#f7fbfa}
+.edit-table td.frozen-col{background:#fbfcfc}
+.edit-table tr:hover td.frozen-col{background:#f3f9f8}
+@media(max-width:760px){.catalog-table th.frozen-col{left:auto}.catalog-table td.frozen-col{position:static}}

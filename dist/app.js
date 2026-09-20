@@ -130,8 +130,11 @@ function setupTableScrolling() {
   tableScroll.addEventListener("scroll", () => sync(tableScroll, viewportScroll));
   viewportScroll.addEventListener("scroll", () => sync(viewportScroll, tableScroll));
 }
-function columnHeader(key) { const def = COLUMN_DEFS[key]; return `<th data-column="${key}" title="드래그: 열 순서 변경"><span class="column-drag">⋮⋮</span>${def.label}<span class="resize-handle" data-resize-column="${key}" aria-hidden="true"></span></th>`; }
-function productRow(product) { return `<tr class="row-${statusClass(product.status)}" data-row-id="${product.uid}" data-product="${product.uid}"><td class="utility-cell"><span class="row-drag" title="상품 순서 이동">⋮⋮</span><input type="checkbox" data-select="${product.uid}" aria-label="${escapeHtml(product.name)} 발행 선택" ${state.selected.has(product.uid) ? "checked" : ""}></td>${state.columns.filter((key) => COLUMN_DEFS[key]).map((key) => `<td data-cell="${key}">${state.mode === "edit" ? editCell(product, key) : viewCell(product, key)}</td>`).join("")}</tr>`; }
+// 체크박스 옆 맨 앞 열은 가로로 스크롤해도 고정한다. (열 순서를 바꾸면 새로 맨 앞이 된 열이 고정된다)
+const frozenKey = () => state.columns.find((key) => COLUMN_DEFS[key]);
+function applyFrozenColumn() { const key = frozenKey(); document.querySelectorAll(".frozen-col").forEach((el) => el.classList.remove("frozen-col")); document.querySelectorAll(`th[data-column="${key}"],td[data-cell="${key}"]`).forEach((el) => el.classList.add("frozen-col")); }
+function columnHeader(key) { const def = COLUMN_DEFS[key]; return `<th data-column="${key}" class="${key === frozenKey() ? "frozen-col" : ""}" title="드래그: 열 순서 변경"><span class="column-drag">⋮⋮</span>${def.label}<span class="resize-handle" data-resize-column="${key}" aria-hidden="true"></span></th>`; }
+function productRow(product) { return `<tr class="row-${statusClass(product.status)}" data-row-id="${product.uid}" data-product="${product.uid}"><td class="utility-cell"><span class="row-drag" title="상품 순서 이동">⋮⋮</span><input type="checkbox" data-select="${product.uid}" aria-label="${escapeHtml(product.name)} 발행 선택" ${state.selected.has(product.uid) ? "checked" : ""}></td>${state.columns.filter((key) => COLUMN_DEFS[key]).map((key) => `<td data-cell="${key}"${key === frozenKey() ? ' class="frozen-col"' : ""}>${state.mode === "edit" ? editCell(product, key) : viewCell(product, key)}</td>`).join("")}</tr>`; }
 function viewCell(product, key) {
   const def = COLUMN_DEFS[key], value = product[key];
   if (def.type === "image") return imageMarkup(product);
@@ -292,7 +295,7 @@ document.addEventListener("dragover", (event) => {
       const draggedCell = row.querySelector(`[data-cell="${state.draggedColumn}"]`), targetCell = row.querySelector(`[data-cell="${th.dataset.column}"]`);
       if (draggedCell && targetCell) row.insertBefore(draggedCell, placeAfter ? targetCell.nextElementSibling : targetCell);
     });
-    state.columns = [...document.querySelectorAll("th[data-column]")].map((header) => header.dataset.column);
+    state.columns = [...document.querySelectorAll("th[data-column]")].map((header) => header.dataset.column); applyFrozenColumn();
     return;
   }
   const row = event.target.closest("tr[data-row-id],tr[data-group]");
