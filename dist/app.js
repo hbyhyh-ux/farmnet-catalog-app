@@ -8,7 +8,7 @@ const COLUMN_DEFS = {
   project: { label: "사업명", width: 230 },
   origin: { label: "원산지", width: 120 },
   storage: { label: "보관방법", width: 110 },
-  shelfLife: { label: "소비기한", width: 150, type: "date" },
+  shelfLife: { label: "소비기한", width: 170, type: "shelf" },
   description: { label: "상품소개", width: 300, type: "textarea" },
   weight: { label: "중량·용량", width: 150 },
   boxPack: { label: "박스 입수", width: 130 },
@@ -53,7 +53,23 @@ function digits(value) { return String(value ?? "").replace(/[^0-9]/g, ""); }
 function numberValue(value) { const match = String(value ?? "").match(/[0-9][0-9,]*/); return match ? Number(match[0].replaceAll(",", "")) || 0 : 0; }
 function formatNumber(value) { const number = numberValue(value); return number ? number.toLocaleString("ko-KR") : ""; }
 function formatPrice(value) { const formatted = formatNumber(value); return formatted ? `${formatted}원` : "가격 미입력"; }
-function isoDate(value) { const match = String(value || "").trim().match(/^(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})$/); return match ? `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}` : ""; }
+// 소비기한: 날짜(2027.02.11) 또는 기간(24개월, 2년)으로 적는다. 올바르면 정리된 글자를, 형식이 틀리면 null을 돌려준다.
+const SHELF_HINT = "2027.02.11 · 24개월 · 2년", SHELF_ERROR = "소비기한은 날짜(2027.02.11) 또는 24개월·2년 형식으로 입력해주세요.";
+const SHELF_PATTERN = String.raw`\s*(\d{4}(\.|-|/)(0?[1-9]|1[0-2])(\.|-|/)(0?[1-9]|[12]\d|3[01])|\d+\s*(개월|년))?\s*`;
+function normalizeShelfLife(value) {
+  const text = String(value ?? "").trim(); if (!text) return "";
+  const date = text.match(/^(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})$/);
+  if (date) { const [, y, m, d] = date, real = new Date(Number(y), Number(m) - 1, Number(d)); return real.getFullYear() === Number(y) && real.getMonth() === Number(m) - 1 && real.getDate() === Number(d) ? `${y}.${m.padStart(2, "0")}.${d.padStart(2, "0")}` : null; }
+  const span = text.match(/^(\d+)\s*(개월|년)$/); return span ? `${Number(span[1])}${span[2]}` : null;
+}
+// 입력칸의 글자를 저장할 값으로 바꾼다. 소비기한 형식이 틀리면 오류를 던진다.
+function readField(key, raw) {
+  const type = COLUMN_DEFS[key].type;
+  if (type === "money") return numberValue(raw);
+  if (type === "shelf") { const value = normalizeShelfLife(raw); if (value === null) throw new Error(SHELF_ERROR); return value; }
+  if (type === "url") return String(raw).replace(/\s+/g, "");
+  return raw;
+}
 function statusClass(status) { return status === "임시품절" ? "paused" : status === "단종" ? "ended" : "active"; }
 // 모달 팝업 위에서도 보이도록 popover(최상위 레이어)로 띄운다.
 function showToast(message) {
@@ -149,9 +165,9 @@ function editCell(product, key) {
   if (def.type === "image") return `<label class="table-image-edit">${imageMarkup(product)}<input type="file" accept="image/*" data-image-id="${product.uid}"><span>사진 변경</span></label>`;
   if (def.type === "status") return `<select class="cell-input" data-edit-id="${product.uid}" data-field="${key}">${STATUS.map((s) => `<option ${s === value ? "selected" : ""}>${s}</option>`).join("")}</select>`;
   if (def.type === "textarea") return `<textarea class="cell-input cell-textarea" rows="2" data-edit-id="${product.uid}" data-field="${key}">${escapeHtml(value)}</textarea>`;
-  if (def.type === "date") return `<input class="cell-input" type="date" data-edit-id="${product.uid}" data-field="${key}" value="${isoDate(value)}">`;
   if (def.type === "money") return `<input class="cell-input money-input" inputmode="numeric" data-edit-id="${product.uid}" data-field="${key}" value="${formatNumber(value)}" placeholder="0">`;
-  return `<input class="cell-input" type="${def.type === "url" ? "url" : "text"}" data-edit-id="${product.uid}" data-field="${key}" value="${escapeHtml(value)}">`;
+  // 그 밖의 글자 칸도 상품소개처럼 너비를 넘으면 줄바꿈·스크롤되고 높이를 늘릴 수 있다. (Enter=입력 완료, Shift+Enter=줄바꿈)
+  return `<textarea class="cell-input cell-textarea" rows="2" data-single data-edit-id="${product.uid}" data-field="${key}"${def.type === "shelf" ? ` placeholder="${SHELF_HINT}"` : ""}>${escapeHtml(value)}</textarea>`;
 }
 
 function fieldMarkup(key, value = "", prefix = "") {
@@ -159,9 +175,10 @@ function fieldMarkup(key, value = "", prefix = "") {
   if (def.type === "image") return "";
   if (def.type === "status") return `<label class="${wide}"><span>${def.label}</span><select name="${name}">${STATUS.map((s) => `<option ${s === value ? "selected" : ""}>${s}</option>`).join("")}</select></label>`;
   if (def.type === "textarea") return `<label class="${wide}"><span>${def.label}</span><textarea name="${name}" rows="3">${escapeHtml(value)}</textarea></label>`;
-  const type = def.type === "date" ? "date" : def.type === "url" ? "url" : "text";
+  const type = def.type === "url" ? "url" : "text";
+  const shelf = def.type === "shelf" ? ` pattern="${SHELF_PATTERN}" title="${SHELF_ERROR}" placeholder="${SHELF_HINT}"` : "";
   const money = def.type === "money" ? ' money-input" inputmode="numeric' : "";
-  return `<label class="${wide}"><span>${def.label}${def.required ? " *" : ""}</span><input class="${money}" type="${type}" name="${name}" value="${escapeHtml(def.type === "money" ? formatNumber(value) : def.type === "date" ? isoDate(value) : value)}" ${def.required ? "required" : ""}></label>`;
+  return `<label class="${wide}"><span>${def.label}${def.required ? " *" : ""}</span><input class="${money}" type="${type}" name="${name}" value="${escapeHtml(def.type === "money" ? formatNumber(value) : value)}"${shelf} ${def.required ? "required" : ""}></label>`;
 }
 function registrationFields() { return state.columns.filter((key) => key !== "image" && COLUMN_DEFS[key]).map((key) => fieldMarkup(key)).join(""); }
 
@@ -170,11 +187,13 @@ function openProduct(product, options = {}) {
   const readOnly = Boolean(options.readOnly);
   const image = product.images?.[0] ? `<img src="${escapeHtml(product.images[0])}" alt="${escapeHtml(product.name)}">` : `<span>${escapeHtml(product.name?.slice(0, 1) || "F")}</span>`;
   document.querySelector("#productDialogContent").innerHTML = readOnly
-    ? `<div class="detail-layout"><div class="detail-image">${image}</div><div class="detail-info"><p class="detail-project">${escapeHtml(product.project || "사업명 미입력")}</p><p class="detail-category">${escapeHtml(product.category || "상품 유형 미입력")}</p><h2>${escapeHtml(product.name)}</h2><p class="detail-description">${escapeHtml(product.description || "상품 설명이 아직 입력되지 않았습니다.").replaceAll("\n", "<br>")}</p><strong class="detail-price">${formatPrice(product.price)}</strong>${detailFacts(product)}${product.saleLink ? `<a class="button primary sales-button" href="${escapeHtml(product.saleLink)}" target="_blank" rel="noopener">판매처에서 보기 ↗</a>` : ""}</div></div>`
+    ? `<div class="detail-layout"><div class="detail-image">${image}</div><div class="detail-info"><p class="detail-project">${escapeHtml(product.project || "사업명 미입력")}</p><h2>${escapeHtml(product.name)}</h2><p class="detail-weight">${escapeHtml(product.weight || "중량 미입력")}</p><p class="detail-description">${escapeHtml(product.description || "상품 설명이 아직 입력되지 않았습니다.").replaceAll("\n", "<br>")}</p><strong class="detail-price">${formatPrice(product.price)}</strong>${detailFacts(product)}${product.saleLink ? `<a class="button primary sales-button" href="${escapeHtml(product.saleLink)}" target="_blank" rel="noopener">판매처에서 보기 ↗</a>` : ""}</div></div>`
     : `<form id="detailEditForm" data-detail-id="${product.uid}"><div class="detail-edit-layout"><div class="detail-edit-aside"><div id="detailImagePreview" class="detail-image">${image}</div><label class="button secondary image-change-button"><input id="detailImageInput" type="file" accept="image/*">사진 변경</label><p>업로드한 사진은 1:1 비율로 자동 저장됩니다.</p></div><div class="detail-edit-main"><p class="eyebrow">PRODUCT EDIT</p><h2>${escapeHtml(product.name)}</h2><div class="form-grid detail-form-grid">${state.columns.filter((key) => key !== "image" && COLUMN_DEFS[key]).map((key) => fieldMarkup(key, product[key] ?? "", "detail-")).join("")}</div><div class="dialog-actions"><button class="button secondary" type="button" data-close-dialog>닫기</button><button class="button primary" type="submit">변경사항 저장</button></div></div></div></form>`;
   productDialog.showModal();
 }
-function detailFacts(product) { return `<dl>${state.columns.filter((key) => !["image", "project", "category", "name", "description", "price", "saleLink"].includes(key)).map((key) => `<div><dt>${COLUMN_DEFS[key].label}</dt><dd>${escapeHtml(product[key] || "-")}</dd></div>`).join("")}</dl>`; }
+// 발행된 카탈로그 팝업 하단 정보. (운영상태·배송비는 보여주지 않고, 중량은 상단으로 올리고 그 자리에 상품 유형을 둔다)
+const PUBLIC_FACTS = ["origin", "storage", "shelfLife", "category", "boxPack"];
+function detailFacts(product) { return `<dl>${PUBLIC_FACTS.filter((key) => COLUMN_DEFS[key]).map((key) => `<div><dt>${COLUMN_DEFS[key].label}</dt><dd>${escapeHtml(product[key] || "-")}</dd></div>`).join("")}</dl>`; }
 
 function renderIssues() {
   if (state.openIssue) return renderIssueDetail(state.openIssue);
@@ -255,10 +274,13 @@ document.addEventListener("click", (event) => {
   if (event.target.closest("#backToIssues")) { state.openIssue = null; return renderIssues(); }
   const issue = event.target.closest("[data-issue]"); if (issue) { state.openIssue = issue.dataset.issue; return renderIssues(); }
   const snapshot = event.target.closest("[data-snapshot-product]"); if (snapshot) { const source = state.issues.find((i) => i.id === snapshot.dataset.snapshot); return openProduct(source?.products.find((p) => p.uid === snapshot.dataset.snapshotProduct), { readOnly: true }); }
-  const product = event.target.closest("[data-product]"); if (product && !event.target.closest("input,select,textarea,a,label,.row-drag") && !state.justDragged) return openProduct(state.products.find((p) => p.uid === product.dataset.product));
+  const product = event.target.closest("[data-product]"); if (product && state.mode !== "edit" && !event.target.closest("input,select,textarea,a,label,.row-drag") && !state.justDragged) return openProduct(state.products.find((p) => p.uid === product.dataset.product));
   const close = event.target.closest("[data-close-dialog]"); if (close) return close.closest("dialog").close();
 });
 
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.target.matches?.("textarea[data-single]")) { event.preventDefault(); event.target.blur(); }
+});
 document.addEventListener("input", (event) => {
   if (event.target.id === "productSearch") { state.search = event.target.value; clearTimeout(searchTimer); searchTimer = setTimeout(refreshRows, 120); }
   if (event.target.matches(".money-input")) event.target.value = formatNumber(event.target.value);
@@ -266,7 +288,7 @@ document.addEventListener("input", (event) => {
 document.addEventListener("change", async (event) => {
   if (event.target.matches("[data-select]")) { event.target.checked ? state.selected.add(event.target.dataset.select) : state.selected.delete(event.target.dataset.select); return syncSelection(); }
   if (event.target.id === "selectAll") { visibleProducts().forEach((p) => event.target.checked ? state.selected.add(p.uid) : state.selected.delete(p.uid)); document.querySelectorAll("[data-select]").forEach((box) => { box.checked = event.target.checked; }); return syncSelection(); }
-  if (event.target.matches("[data-edit-id]")) { const product = state.products.find((p) => p.uid === event.target.dataset.editId); if (!product) return; const field = event.target.dataset.field; product[field] = COLUMN_DEFS[field].type === "money" ? numberValue(event.target.value) : event.target.value; if (field === "status") sortProducts(state.products); persist(); showToast(field === "status" ? `${(product.name || "상품").replace(/\s+/g, " ")}: ${product.status}(으)로 이동했습니다.` : `${product.name || "상품"} 정보가 저장되었습니다.`); if (field === "status") renderProducts(); }
+  if (event.target.matches("[data-edit-id]")) { const product = state.products.find((p) => p.uid === event.target.dataset.editId); if (!product) return; const field = event.target.dataset.field; let value; try { value = readField(field, event.target.value); } catch (error) { event.target.value = product[field] ?? ""; return showToast(error.message); } if (COLUMN_DEFS[field].type === "shelf") event.target.value = value; product[field] = value; if (field === "status") sortProducts(state.products); persist(); showToast(field === "status" ? `${(product.name || "상품").replace(/\s+/g, " ")}: ${product.status}(으)로 이동했습니다.` : `${product.name || "상품"} 정보가 저장되었습니다.`); if (field === "status") renderProducts(); }
   if (event.target.matches("[data-image-id]")) { const product = state.products.find((p) => p.uid === event.target.dataset.imageId); if (product) { await replaceImage(product, event.target.files?.[0], ""); renderProducts(); } }
   if (event.target.id === "newProductImage" && event.target.files?.[0]) { const value = await squareImage(event.target.files[0]); event.target.dataset.processed = value; document.querySelector("#newProductPreview").innerHTML = `<img src="${value}" alt="미리보기">`; }
   if (event.target.id === "detailImageInput") { const product = state.products.find((p) => p.uid === document.querySelector("#detailEditForm")?.dataset.detailId); if (product) await replaceImage(product, event.target.files?.[0], "#detailImagePreview"); event.target.value = ""; }
@@ -363,12 +385,12 @@ document.addEventListener("mouseup", disarmDrag);
 
 document.querySelector("#productForm").addEventListener("submit", async (event) => {
   event.preventDefault(); const data = Object.fromEntries(new FormData(event.currentTarget)); const product = normalizeProduct({ uid: uid(), images: event.currentTarget.image.dataset.processed ? [event.currentTarget.image.dataset.processed] : [] });
-  state.columns.forEach((key) => { if (key === "image") return; const value = data[key] ?? ""; product[key] = COLUMN_DEFS[key].type === "money" ? numberValue(value) : value; });
+  try { state.columns.forEach((key) => { if (key === "image") return; product[key] = readField(key, data[key] ?? ""); }); } catch (error) { return showToast(error.message); }
   state.products.unshift(product); sortProducts(state.products); persist(); formDialog.close(); renderProducts(); showToast("새 상품이 등록되었습니다.");
 });
 document.addEventListener("submit", (event) => {
   if (event.target.id !== "detailEditForm") return; event.preventDefault(); const product = state.products.find((p) => p.uid === event.target.dataset.detailId); if (!product) return;
-  const data = Object.fromEntries(new FormData(event.target)); state.columns.forEach((key) => { if (key === "image") return; const value = data[`detail-${key}`] ?? ""; product[key] = COLUMN_DEFS[key].type === "money" ? numberValue(value) : value; });
+  const data = Object.fromEntries(new FormData(event.target)); try { const next = {}; state.columns.forEach((key) => { if (key === "image") return; next[key] = readField(key, data[`detail-${key}`] ?? ""); }); Object.assign(product, next); } catch (error) { return showToast(error.message); }
   sortProducts(state.products); persist(); productDialog.close(); renderProducts(); showToast("상품 상세정보를 저장했습니다.");
 });
 [productDialog, formDialog, publishDialog, confirmDialog].forEach((dialog) => dialog.addEventListener("click", (event) => { if (event.target !== dialog) return; const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); }));
