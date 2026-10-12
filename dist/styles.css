@@ -142,13 +142,7 @@
 .section-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px;margin:0 0 14px}
 .section-head h2{margin:0;font-size:1.3rem;letter-spacing:-.03em}
 .section-head h2::before{content:"";display:inline-block;width:6px;height:1.05em;margin-right:9px;border-radius:3px;background:var(--navy);vertical-align:-.15em}
-.public-section.md .section-head h2::before{background:var(--teal)}
-.public-section.sale .section-head h2::before{background:#d64545}
 .section-head p{margin:0;color:var(--muted);font-size:.8rem}
-.public-products.md-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
-.public-section.md .published-product{border-color:#bfe3dc;box-shadow:0 12px 28px rgba(8,127,122,.12)}
-.public-section.sale .published-product{border-color:#f2cccc}
-@media(max-width:760px){.public-products.md-grid{grid-template-columns:1fr}.public-section{margin-bottom:30px}}
 
 /* 관리 화면: MD PICK 체크박스, 특가 할인율 */
 .flag-input{width:18px;height:18px;accent-color:var(--teal);cursor:pointer}
@@ -162,3 +156,20 @@
 .form-grid .flag-field input{width:18px;height:18px;accent-color:var(--teal)}
 .form-grid .flag-field small{color:var(--muted);font-weight:500}
 .sync-status[data-state=outdated]{background:#fff2d9;color:var(--amber)}
+
+/* MD PICK·특가를 한 줄에, 썸네일 배지는 크게 */
+.public-section.featured .section-head h2::before{background:var(--teal)}
+.public-products.featured-grid{grid-template-columns:repeat(var(--cols,3),minmax(0,1fr))}
+.public-section.featured .published-product{border-color:#bfe3dc;box-shadow:0 12px 28px rgba(8,127,122,.12)}
+@media(max-width:760px){
+  .public-section{margin-bottom:30px}
+  .public-products.featured-grid{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:78%;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;padding:2px 2px 8px;-webkit-overflow-scrolling:touch}
+  .public-products.featured-grid>.published-product{scroll-snap-align:start}
+}
+.card-badges{top:12px;left:12px;flex-direction:column;align-items:flex-start;gap:6px}
+.card-badge{padding:8px 15px;border-radius:10px;font-size:1.05rem;font-weight:900;letter-spacing:.01em;line-height:1.1;box-shadow:0 4px 14px rgba(0,0,0,.28)}
+.card-badge.sale{font-size:1.25rem}
+.published-grid .card-badge{padding:4px 9px;border-radius:8px;font-size:.74rem}
+.published-grid .card-badge.sale{font-size:.8rem}
+.card-badges.inline .card-badge{padding:6px 12px;font-size:.95rem;box-shadow:none}
+.card-badges.inline{flex-direction:row}

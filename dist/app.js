@@ -65,12 +65,30 @@ const isOn = (value) => value === true || ["true", "1", "y", "yes", "on"].includ
 const isSale = (p) => numberValue(p.salePrice) > 0 && numberValue(p.price) > 0 && numberValue(p.salePrice) < numberValue(p.price);
 const discountRate = (p) => (isSale(p) ? Math.max(1, Math.round((1 - numberValue(p.salePrice) / numberValue(p.price)) * 100)) : 0);
 const isLive = (p) => (p.status || "운영중") === "운영중";
+// 월호마다 MD PICK은 1개, 특가는 2개까지만 지정할 수 있다.
+const MAX_MD = 1, MAX_SALE = 2;
 // 카탈로그 상단 구역 나누기: MD PICK → 특가(MD PICK이 아닌 것) → 나머지. 한 상품은 한 곳에만 나온다.
+// (한도를 넘은 지정이 남아 있어도 상단에는 한도까지만 올리고 나머지는 전체 상품에 둔다)
 function featuredSplit(products) {
-  const md = products.filter((p) => isLive(p) && isOn(p.mdPick));
-  const sale = products.filter((p) => isLive(p) && isSale(p) && !isOn(p.mdPick));
+  const md = products.filter((p) => isLive(p) && isOn(p.mdPick)).slice(0, MAX_MD);
+  const sale = products.filter((p) => isLive(p) && isSale(p) && !md.includes(p)).slice(0, MAX_SALE);
   const shown = new Set([...md, ...sale].map((p) => p.uid));
   return { md, sale, rest: products.filter((p) => !shown.has(p.uid)) };
+}
+// 지정된 개수(한도 적용 전). 발행할 때 한도를 넘었는지 확인하는 데 쓴다.
+const featuredCounts = (products) => ({ md: products.filter((p) => isLive(p) && isOn(p.mdPick)), sale: products.filter((p) => isLive(p) && isSale(p)) });
+// 새로 MD PICK이나 특가가 되는 경우에만 한도를 확인한다. (이미 지정된 상품의 다른 칸 수정은 막지 않는다)
+function checkLimits(next, previous = {}) {
+  const others = state.products.filter((p) => p.uid !== next.uid && isLive(p));
+  const names = (list) => list.map(shortName).join(", ");
+  if (isLive(next) && isOn(next.mdPick) && !(isLive(previous) && isOn(previous.mdPick))) {
+    const taken = others.filter((p) => isOn(p.mdPick));
+    if (taken.length >= MAX_MD) throw new Error(`MD PICK은 월 ${MAX_MD}개만 지정할 수 있습니다. 현재 MD PICK: ${names(taken)} — 먼저 해제해주세요.`);
+  }
+  if (isLive(next) && isSale(next) && !(isLive(previous) && isSale(previous))) {
+    const taken = others.filter(isSale);
+    if (taken.length >= MAX_SALE) throw new Error(`특가는 월 ${MAX_SALE}개까지만 지정할 수 있습니다. 현재 특가: ${names(taken)} — 먼저 하나를 해제해주세요.`);
+  }
 }
 function priceHtml(p) {
   if (!isSale(p)) return escapeHtml(formatPrice(p.price));
@@ -82,7 +100,7 @@ function cardBadges(p, inline = false) {
   if (isSale(p)) badges.push(`<span class="card-badge sale">${discountRate(p)}% 할인</span>`);
   return badges.length ? `<div class="card-badges${inline ? " inline" : ""}">${badges.join("")}</div>` : "";
 }
-const shortName = (p) => (p.name || "상품").replace(/\s+/g, " ");
+function shortName(p) { return (p.name || "상품").replace(/\s+/g, " "); }
 // 저장하기 전 검사: MD PICK은 운영중 상품만, 특가가는 소비자가보다 낮게.
 function checkFeatured(p) {
   if (isOn(p.mdPick) && !isLive(p)) throw new Error("MD PICK은 운영중인 상품만 지정할 수 있습니다.");
@@ -271,15 +289,14 @@ function renderPublicCatalog(issueId, failed = false) {
   if (!issue) { appView.innerHTML = `<div class="public-empty"><img class="public-empty-icon" src="assets/icon.png" alt=""><h1>${failed ? "카탈로그를 불러오지 못했습니다." : "이 카탈로그를 찾을 수 없습니다."}</h1><p>${failed ? "네트워크 상태를 확인하고 다시 시도해주세요." : "아직 발행되지 않았거나 주소가 올바르지 않습니다."}</p>${failed ? '<button class="button primary" onclick="location.reload()">다시 시도</button>' : ""}</div>`; return; }
   appView.innerHTML = `<div class="public-catalog"><header><div class="public-brand"><img class="brand-mark" src="assets/icon.png" alt=""><strong>FAMNET CAFETERIA</strong></div><p>${issue.year} MONTHLY COLLECTION</p><h1>${issue.month}월의 팜넷 상품</h1><span>${issue.products.length}개 상품</span></header><main>${publicSections(issue)}</main></div>`;
 }
-// 외부 카탈로그 본문: 이달의 MD PICK → 특가 할인 → 전체 상품. 지정된 상품이 없으면 해당 구역은 나오지 않는다.
+// 외부 카탈로그 본문: [이달의 MD PICK + 특가 할인]을 한 줄에 → 전체 상품. 지정된 상품이 없으면 상단 구역은 나오지 않는다.
 function publicSections(issue) {
   const { md, sale, rest } = featuredSplit(issue.products);
-  const grid = (list, cls = "") => `<div class="public-products ${cls}">${list.map((p) => publishedCard(p, issue.id, true)).join("")}</div>`;
-  const section = (cls, title, caption, list, gridCls = "") => `<section class="public-section ${cls}"><div class="section-head"><h2>${title}</h2><p>${caption}</p></div>${grid(list, gridCls)}</section>`;
-  const featured = md.length + sale.length > 0;
-  return (md.length ? section("md", "이달의 MD PICK", "MD가 이번 달 가장 추천하는 상품", md, "md-grid") : "")
-    + (sale.length ? section("sale", "특가 할인", "이번 달에만 만나는 특별한 가격", sale) : "")
-    + (rest.length ? (featured ? section("all", "전체 상품", `${rest.length}개`, rest) : grid(rest)) : "");
+  const top = [...md, ...sale];
+  const grid = (list, cls = "", style = "") => `<div class="public-products ${cls}"${style ? ` style="${style}"` : ""}>${list.map((p) => publishedCard(p, issue.id, true)).join("")}</div>`;
+  const section = (cls, title, caption, list, gridCls = "", style = "") => `<section class="public-section ${cls}"><div class="section-head"><h2>${title}</h2><p>${caption}</p></div>${grid(list, gridCls, style)}</section>`;
+  return (top.length ? section("featured", "이달의 MD PICK · 특가 할인", "MD 추천과 이번 달 특별한 가격", top, "featured-grid", `--cols:${top.length}`) : "")
+    + (rest.length ? (top.length ? section("all", "전체 상품", `${rest.length}개`, rest) : grid(rest)) : "");
 }
 
 function openPublish() {
@@ -299,7 +316,15 @@ function askConfirm({ title, message, ok }) {
 async function requestPublish() {
   const year = Number(document.querySelector("#publishYear").value), month = Number(document.querySelector("#publishMonth").value), id = `${year}-${String(month).padStart(2, "0")}`;
   const existing = state.issues.find((item) => item.id === id), count = state.selected.size;
-  const { md, sale } = featuredSplit(state.products.filter((p) => state.selected.has(p.uid)));
+  const picked = state.products.filter((p) => state.selected.has(p.uid)), raw = featuredCounts(picked);
+  if (raw.md.length > MAX_MD || raw.sale.length > MAX_SALE) {
+    const lines = [];
+    if (raw.md.length > MAX_MD) lines.push(`MD PICK ${raw.md.length}개 (한도 ${MAX_MD}개): ${raw.md.map(shortName).join(", ")}`);
+    if (raw.sale.length > MAX_SALE) lines.push(`특가 ${raw.sale.length}개 (한도 ${MAX_SALE}개): ${raw.sale.map(shortName).join(", ")}`);
+    await askConfirm({ title: "MD PICK·특가 개수를 확인해주세요", message: `월호당 MD PICK은 ${MAX_MD}개, 특가는 ${MAX_SALE}개까지입니다.<br>${lines.map(escapeHtml).join("<br>")}<br>지정을 줄이거나 해당 상품을 선택에서 빼고 다시 발행해주세요.`, ok: "확인" });
+    return;
+  }
+  const { md, sale } = featuredSplit(picked);
   const featuredNote = md.length + sale.length ? `<br>카탈로그 상단에 <strong>MD PICK ${md.length}개 · 특가 ${sale.length}개</strong>가 노출됩니다.` : "";
   const confirmed = await askConfirm(existing
     ? { title: `${year}년 ${month}월호를 덮어쓸까요?`, message: `이미 발행된 ${year}년 ${month}월호가 있습니다.<br>덮어쓰면 기존 <strong>${existing.products.length}개</strong> 상품이 이번에 선택한 <strong>${count}개</strong> 상품으로 교체됩니다.${featuredNote}`, ok: "덮어쓰기" }
@@ -363,7 +388,7 @@ document.addEventListener("change", async (event) => {
       value = readField(field, isFlag ? input.checked : input.value);
       const next = { ...product, [field]: value };
       if (field === "status" && value !== "운영중" && isOn(product.mdPick)) { next.mdPick = false; unflagged = true; } // 운영중이 아니게 되면 MD PICK은 자동 해제
-      checkFeatured(next);
+      checkFeatured(next); checkLimits(next, product);
     } catch (error) { revert(); return showToast(error.message); }
     if (COLUMN_DEFS[field].type === "shelf" || COLUMN_DEFS[field].maxLength) input.value = value;
     product[field] = value; if (unflagged) product.mdPick = false;
@@ -422,6 +447,8 @@ document.addEventListener("drop", (event) => {
 function moveProduct(uid, target) {
   const from = state.products.findIndex((p) => p.uid === uid); if (from < 0) return;
   const moved = state.products[from], previous = moved.status;
+  const destination = target.dataset.rowId ? state.products.find((p) => p.uid === target.dataset.rowId)?.status : target.dataset.group;
+  if (destination === "운영중" && previous !== "운영중") { try { checkLimits({ ...moved, status: "운영중" }, moved); } catch (error) { return showToast(error.message); } } // 운영중으로 돌아오면 특가 한도를 넘을 수 있다
   if (target.dataset.rowId) {
     if (target.dataset.rowId === uid) return;
     const to = state.products.findIndex((p) => p.uid === target.dataset.rowId); if (to < 0) return;
@@ -471,12 +498,12 @@ document.addEventListener("mouseup", disarmDrag);
 
 document.querySelector("#productForm").addEventListener("submit", async (event) => {
   event.preventDefault(); const data = Object.fromEntries(new FormData(event.currentTarget)); const product = normalizeProduct({ uid: uid(), images: event.currentTarget.image.dataset.processed ? [event.currentTarget.image.dataset.processed] : [] });
-  try { state.columns.forEach((key) => { if (key === "image") return; product[key] = readField(key, data[key] ?? ""); }); checkFeatured(product); } catch (error) { return showToast(error.message); }
+  try { state.columns.forEach((key) => { if (key === "image") return; product[key] = readField(key, data[key] ?? ""); }); checkFeatured(product); checkLimits(product); } catch (error) { return showToast(error.message); }
   state.products.unshift(product); sortProducts(state.products); persist(); formDialog.close(); renderProducts(); showToast("새 상품이 등록되었습니다.");
 });
 document.addEventListener("submit", (event) => {
   if (event.target.id !== "detailEditForm") return; event.preventDefault(); const product = state.products.find((p) => p.uid === event.target.dataset.detailId); if (!product) return;
-  const data = Object.fromEntries(new FormData(event.target)); try { const next = {}; state.columns.forEach((key) => { if (key === "image") return; next[key] = readField(key, data[`detail-${key}`] ?? ""); }); checkFeatured({ ...product, ...next }); Object.assign(product, next); } catch (error) { return showToast(error.message); }
+  const data = Object.fromEntries(new FormData(event.target)); try { const next = {}; state.columns.forEach((key) => { if (key === "image") return; next[key] = readField(key, data[`detail-${key}`] ?? ""); }); checkFeatured({ ...product, ...next }); checkLimits({ ...product, ...next }, product); Object.assign(product, next); } catch (error) { return showToast(error.message); }
   sortProducts(state.products); persist(); productDialog.close(); renderProducts(); showToast("상품 상세정보를 저장했습니다.");
 });
 [productDialog, formDialog, publishDialog, confirmDialog].forEach((dialog) => dialog.addEventListener("click", (event) => { if (event.target !== dialog) return; const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); }));
