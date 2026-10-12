@@ -15,10 +15,13 @@
 const EDIT_CODE = "";
 const IMAGE_FOLDER = "팜넷 카탈로그 상품사진";
 
-const FIELDS = ["status", "name", "project", "category", "origin", "storage", "shelfLife", "description", "weight", "boxPack", "price", "shippingFee", "saleLink", "images"];
-const NUMERIC_FIELDS = ["price", "shippingFee"];
+// 새 필드는 반드시 맨 뒤에 추가한다. (기존 시트의 열 위치가 바뀌면 안 된다)
+const SCHEMA = 2; // 2: salePrice(특가가), mdPick(MD PICK), mdComment(MD 한줄 코멘트) 추가
+const FIELDS = ["status", "name", "project", "category", "origin", "storage", "shelfLife", "description", "weight", "boxPack", "price", "shippingFee", "saleLink", "images", "salePrice", "mdPick", "mdComment"];
+const NUMERIC_FIELDS = ["price", "shippingFee", "salePrice"];
+const BOOLEAN_FIELDS = ["mdPick"];
 const SHEETS = {
-  products: { name: "products", headers: ["uid", "order"].concat(FIELDS), numeric: ["order", "price", "shippingFee"] },
+  products: { name: "products", headers: ["uid", "order"].concat(FIELDS), numeric: ["order", "price", "shippingFee", "salePrice"] },
   issues: { name: "issues", headers: ["id", "year", "month", "publishedAt"], numeric: ["year", "month"] },
   issueProducts: { name: "issue_products", headers: ["issueId", "index", "json"], numeric: ["index"] },
   settings: { name: "settings", headers: ["key", "value"], numeric: [] }
@@ -30,7 +33,7 @@ function doGet(e) {
     if (action === "version") return json_({ ok: true, version: version_() });
     if (action === "issue") return issueResponse_(e.parameter.id);
     ensureSheets_();
-    return json_(Object.assign({ ok: true, version: version_() }, readAll_()));
+    return json_(Object.assign({ ok: true, version: version_(), schema: SCHEMA }, readAll_()));
   } catch (error) { return json_({ ok: false, error: String(error && error.message || error) }); }
 }
 
@@ -85,6 +88,7 @@ function readProducts_() {
     FIELDS.forEach(function (field) {
       const value = row[field];
       if (field === "images") { try { product.images = value ? JSON.parse(value) : []; } catch (ignore) { product.images = []; } }
+      else if (BOOLEAN_FIELDS.indexOf(field) >= 0) product[field] = value === true || String(value).toUpperCase() === "TRUE";
       else if (NUMERIC_FIELDS.indexOf(field) >= 0) product[field] = Number(value) || 0;
       else product[field] = value === null || value === undefined ? "" : String(value);
     });
@@ -146,6 +150,7 @@ function makeProduct_(uid, fields) {
 
 function coerce_(field, value) {
   if (field === "images") return Array.isArray(value) ? value : [];
+  if (BOOLEAN_FIELDS.indexOf(field) >= 0) return value === true || String(value).toUpperCase() === "TRUE";
   if (NUMERIC_FIELDS.indexOf(field) >= 0) return Number(value) || 0;
   return value === null || value === undefined ? "" : String(value);
 }
@@ -158,6 +163,7 @@ function writeTable_(spec, objects) {
     return spec.headers.map(function (header) {
       const value = object[header];
       if (header === "images") return JSON.stringify(value || []);
+      if (typeof value === "boolean") return value ? "TRUE" : "";
       return value === undefined || value === null ? "" : value;
     });
   });
@@ -170,15 +176,33 @@ function writeTable_(spec, objects) {
 function ss_() { return SpreadsheetApp.getActiveSpreadsheet(); }
 
 function ensureSheets_() {
+  const props = PropertiesService.getScriptProperties(), migrate = props.getProperty("schema") !== String(SCHEMA);
   Object.keys(SHEETS).forEach(function (key) {
-    const spec = SHEETS[key];
-    if (ss_().getSheetByName(spec.name)) return;
+    const spec = SHEETS[key], existing = ss_().getSheetByName(spec.name);
+    if (existing) { if (migrate) migrateHeaders_(existing, spec); return; }
     const sheet = ss_().insertSheet(spec.name);
     sheet.getRange(1, 1, 1, spec.headers.length).setValues([spec.headers]);
     sheet.setFrozenRows(1);
-    // 숫자로 보이는 글자(예: 500, 2027.02.11)가 숫자·날짜로 바뀌거나 =로 시작하는 글이 수식이 되지 않도록 글자 형식으로 고정한다.
-    spec.headers.forEach(function (header, i) { if (spec.numeric.indexOf(header) < 0) sheet.getRange(1, i + 1, sheet.getMaxRows(), 1).setNumberFormat("@"); });
+    formatColumns_(sheet, spec, 0);
   });
+  if (migrate) props.setProperty("schema", String(SCHEMA));
+}
+
+// 숫자로 보이는 글자(예: 500, 2027.02.11)가 숫자·날짜로 바뀌거나 =로 시작하는 글이 수식이 되지 않도록 글자 형식으로 고정한다.
+function formatColumns_(sheet, spec, from) {
+  spec.headers.forEach(function (header, i) { if (i >= from && spec.numeric.indexOf(header) < 0) sheet.getRange(1, i + 1, sheet.getMaxRows(), 1).setNumberFormat("@"); });
+}
+
+// 이미 만들어진 시트에 새로 늘어난 열(헤더)을 채운다. 기존 데이터는 건드리지 않는다.
+function migrateHeaders_(sheet, spec) {
+  const width = spec.headers.length;
+  if (sheet.getMaxColumns() < width) sheet.insertColumnsAfter(sheet.getMaxColumns(), width - sheet.getMaxColumns());
+  const current = sheet.getRange(1, 1, 1, width).getValues()[0];
+  let first = -1;
+  spec.headers.forEach(function (header, i) {
+    if (current[i] === "" || current[i] === null || current[i] === undefined) { sheet.getRange(1, i + 1).setValue(header); if (first < 0) first = i; }
+  });
+  if (first >= 0) formatColumns_(sheet, spec, first);
 }
 
 function version_() { return Number(PropertiesService.getScriptProperties().getProperty("version") || 0); }

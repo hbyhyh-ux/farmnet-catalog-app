@@ -17,7 +17,7 @@
         var id = new URLSearchParams(location.search).get("catalog");
         if (!id) return;
         document.documentElement.classList.add("is-catalog");
-        if (window.FARMNET_API) window.__catalogPromise = fetch(window.FARMNET_API + "?action=issue&id=" + encodeURIComponent(id), { cache: "no-store" }).then(function (r) { return r.json(); });
+        if (window.FAMNET_API) window.__catalogPromise = fetch(window.FAMNET_API + "?action=issue&id=" + encodeURIComponent(id), { cache: "no-store" }).then(function (r) { return r.json(); });
         if (window.__catalogPromise) window.__catalogPromise.catch(function () {});
       })();
     </script>

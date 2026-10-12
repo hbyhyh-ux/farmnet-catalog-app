@@ -1,28 +1,45 @@
 // 공용 저장소(Google Apps Script + 구글 시트) 동기화.
-// config.js의 FARMNET_API가 비어 있으면 이 파일은 아무 일도 하지 않고, 앱은 브라우저 저장(localStorage)으로 동작한다.
+// config.js의 FAMNET_API가 비어 있으면 이 파일은 아무 일도 하지 않고, 앱은 브라우저 저장(localStorage)으로 동작한다.
 (() => {
-  const API = (window.FARMNET_API || "").trim();
+  const API = (window.FAMNET_API || "").trim();
   const Sync = { enabled: Boolean(API) };
-  window.FarmnetSync = Sync;
+  window.FamnetSync = Sync;
   if (!API) return;
 
-  const FIELDS = ["status", "name", "project", "category", "origin", "storage", "shelfLife", "description", "weight", "boxPack", "price", "shippingFee", "saleLink", "images"];
-  const POLL_MS = 6000, SAVE_DELAY_MS = 400, RETRY_MS = 5000;
+  const FIELDS = ["status", "name", "project", "category", "origin", "storage", "shelfLife", "description", "weight", "boxPack", "price", "shippingFee", "saleLink", "images", "salePrice", "mdPick", "mdComment"];
+  const REQUIRED_SCHEMA = 2; // 서버(Code.gs)가 MD PICK·특가 필드를 저장할 수 있는 버전
+  const POLL_MS = 10000, SAVE_DELAY_MS = 400, RETRY_MS = 5000;
   let state, hooks, version = 0, synced = null, saveTimer, retryTimer, flushing = false, again = false, failed = false;
   const uploaded = new Map();
 
-  const codeKey = "farmnet-edit-code";
+  const codeKey = "famnet-edit-code";
   const editCode = () => { try { return localStorage.getItem(codeKey) || ""; } catch { return ""; } };
 
-  async function api(method, payload) {
+  // 구글 Apps Script는 가끔(특히 한동안 쓰지 않다가 처음) 오류 페이지를 돌려주거나 수십 초 걸린다.
+  // 그래서 요청마다 제한시간을 두고, 조회는 응답이 JSON이 아니거나 늦으면 몇 번 다시 시도한다.
+  const TIMEOUT_MS = { GET: 12000, POST: 45000 };
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const retryable = (message) => Object.assign(new Error(message), { retryable: true });
+  async function once(method, payload) {
     const options = { cache: "no-store" };
     let url = API;
     if (method === "GET") url += `${API.includes("?") ? "&" : "?"}${new URLSearchParams(payload)}`;
     else Object.assign(options, { method: "POST", body: JSON.stringify({ ...payload, code: editCode() }) }); // Content-Type을 지정하지 않아 CORS 사전요청이 생기지 않는다.
-    const response = await fetch(url, options);
-    const data = await response.json();
-    if (!data.ok) throw Object.assign(new Error(data.error || "요청에 실패했습니다."), { code: data.error });
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), TIMEOUT_MS[method]);
+    let text;
+    try { text = await (await fetch(url, { ...options, signal: controller.signal })).text(); }
+    catch { throw retryable("구글 서버에 연결하지 못했습니다. 네트워크 상태를 확인해주세요."); }
+    finally { clearTimeout(timer); }
+    let data;
+    try { data = JSON.parse(text); } catch { throw retryable("구글 서버가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해주세요."); }
+    if (!data.ok) throw Object.assign(new Error(data.error || "요청에 실패했습니다."), { code: data.error, retryable: method === "GET" && data.error !== "unauthorized" });
     return data;
+  }
+  async function api(method, payload, attempts = method === "GET" ? 4 : 1) {
+    for (let attempt = 1; ; attempt++) {
+      try { return await once(method, payload); }
+      catch (error) { if (!error.retryable || attempt >= attempts) throw error; Sync.onRetry?.(attempt); await sleep(800 * attempt); }
+    }
   }
 
   const fieldsOf = (product) => { const fields = {}; FIELDS.forEach((key) => { fields[key] = key === "images" ? [...(product.images || [])] : product[key] ?? ""; }); return fields; };
@@ -67,7 +84,9 @@
 
   function setStatus(kind) {
     const el = document.querySelector("#syncStatus"); if (!el) return;
-    el.dataset.state = kind; el.textContent = { saving: "저장 중…", saved: "✓ 공유됨", error: "⚠ 저장 실패 · 재시도 중", "": "" }[kind];
+    // 서버가 오래된 버전이면 MD PICK·특가가 저장되지 않으므로, 다른 상태보다 우선해서 계속 알린다.
+    if (Sync.outdated && kind !== "error") kind = "outdated";
+    el.dataset.state = kind; el.textContent = { saving: "저장 중…", saved: "✓ 공유됨", error: "⚠ 저장 실패 · 재시도 중", outdated: "⚠ 서버 업데이트 필요 (MD PICK·특가 저장 불가)", "": "" }[kind];
   }
 
   function scheduleSave() { setStatus("saving"); clearTimeout(saveTimer); saveTimer = setTimeout(() => { saveTimer = null; flush(); }, SAVE_DELAY_MS); }
@@ -100,13 +119,14 @@
     state.widths = data.settings.widths || {};
     const known = new Set(state.products.map((p) => p.uid)); [...state.selected].forEach((uid) => { if (!known.has(uid)) state.selected.delete(uid); });
     version = data.version; synced = takeSnapshot();
+    Sync.outdated = (data.schema || 1) < REQUIRED_SCHEMA; if (Sync.outdated) setStatus("saved");
   }
 
   async function poll() {
     if (document.hidden || dirty()) return;
     try {
-      if ((await api("GET", { action: "version" })).version === version || !hooks.canRefresh()) return;
-      const data = await api("GET", { action: "load" });
+      if ((await api("GET", { action: "version" }, 1)).version === version || !hooks.canRefresh()) return;
+      const data = await api("GET", { action: "load" }, 1);
       if (dirty() || !hooks.canRefresh()) return;
       apply(data); hooks.render();
     } catch { /* 일시적인 네트워크 오류는 다음 주기에 다시 시도한다 */ }
@@ -127,7 +147,7 @@
   };
   Sync.loadIssue = async (id) => {
     let data = null;
-    try { data = await window.__catalogPromise; } catch { /* 미리 시작한 요청이 실패하면 아래에서 한 번 더 시도한다 */ }
+    try { data = await Promise.race([window.__catalogPromise, sleep(12000).then(() => null)]); } catch { /* 미리 시작한 요청이 실패하거나 늦으면 아래에서 다시 시도한다 */ }
     if (!data?.ok) data = await api("GET", { action: "issue", id });
     return data.issue ? { ...data.issue, products: data.issue.products.map((p) => hooks.normalize(p)) } : null;
   };

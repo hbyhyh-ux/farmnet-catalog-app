@@ -22,7 +22,7 @@
 `dist/config.js`의 따옴표 안에 URL을 붙여넣고 커밋·푸시합니다.
 
 ```js
-window.FARMNET_API = "https://script.google.com/macros/s/…/exec";
+window.FAMNET_API = "https://script.google.com/macros/s/…/exec";
 ```
 
 처음 접속하는 사람이 열면, 시트가 비어 있을 때 기본 상품 목록이 자동으로 채워집니다.
@@ -50,6 +50,11 @@ window.FARMNET_API = "https://script.google.com/macros/s/…/exec";
 ## 코드를 고쳤을 때
 
 `Code.gs`를 수정하면 **배포 → 배포 관리 → 편집 → 새 버전**으로 다시 배포해야 반영됩니다. (URL은 그대로입니다.)
+
+### MD PICK·특가 기능을 쓰려면 (스키마 2)
+- 위 방법으로 새 `Code.gs`를 재배포하면, 처음 요청이 들어올 때 `products` 시트 맨 뒤에 `salePrice`(특가가), `mdPick`(MD PICK), `mdComment`(MD 한줄 코멘트) 열이 자동으로 추가됩니다. 기존 데이터는 그대로 유지됩니다.
+- 재배포하기 전에는 웹앱 상단에 **"서버 업데이트 필요"** 표시가 뜨고, 이 세 항목은 저장되지 않습니다.
+- 시트에서 열 순서를 바꾸거나 열을 지우지 마세요. 열 위치로 데이터를 읽습니다.
 
 ## 한계
 

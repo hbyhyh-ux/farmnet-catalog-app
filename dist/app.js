@@ -1,4 +1,6 @@
-const STORAGE = { products: "farmnet-products-v3", issues: "farmnet-issues-v3", columns: "farmnet-columns-v1", widths: "farmnet-column-widths-v1" };
+// 예전 이름(farmnet-*)으로 브라우저에 저장된 데이터를 새 이름(famnet-*)으로 한 번 옮긴다.
+try { Object.keys(localStorage).filter((key) => key.startsWith("farmnet-")).forEach((key) => { const next = "famnet-" + key.slice(8); if (localStorage.getItem(next) === null) localStorage.setItem(next, localStorage.getItem(key)); localStorage.removeItem(key); }); } catch {}
+const STORAGE = { products: "famnet-products-v3", issues: "famnet-issues-v3", columns: "famnet-columns-v1", widths: "famnet-column-widths-v1" };
 const STATUS = ["운영중", "임시품절", "단종"];
 const COLUMN_DEFS = {
   image: { label: "상품사진", width: 108, type: "image" },
@@ -13,11 +15,14 @@ const COLUMN_DEFS = {
   weight: { label: "중량·용량", width: 150 },
   boxPack: { label: "박스 입수", width: 130 },
   price: { label: "소비자가", width: 140, type: "money" },
+  salePrice: { label: "특가가", width: 150, type: "money" },
   shippingFee: { label: "배송비", width: 130, type: "money" },
+  mdPick: { label: "MD PICK", width: 100, type: "flag" },
+  mdComment: { label: "MD 한줄 코멘트", width: 240, maxLength: 40 },
   saleLink: { label: "판매링크", width: 260, type: "url" }
 };
 const DEFAULT_COLUMNS = Object.keys(COLUMN_DEFS);
-const Sync = window.FarmnetSync || { enabled: false };
+const Sync = window.FamnetSync || { enabled: false };
 // 운영중 → 임시품절 → 단종 순으로 항상 묶어서 보여준다. (같은 상태 안에서는 직접 정한 순서를 유지)
 const statusRank = (status) => Math.max(0, STATUS.indexOf(status));
 const sortProducts = (list) => list.sort((a, b) => statusRank(a.status) - statusRank(b.status));
@@ -53,6 +58,38 @@ function digits(value) { return String(value ?? "").replace(/[^0-9]/g, ""); }
 function numberValue(value) { const match = String(value ?? "").match(/[0-9][0-9,]*/); return match ? Number(match[0].replaceAll(",", "")) || 0 : 0; }
 function formatNumber(value) { const number = numberValue(value); return number ? number.toLocaleString("ko-KR") : ""; }
 function formatPrice(value) { const formatted = formatNumber(value); return formatted ? `${formatted}원` : "가격 미입력"; }
+
+// ---- MD PICK · 특가 ----
+// 특가가가 소비자가보다 낮을 때만 특가로 본다. 할인율은 입력값에서 자동 계산한다.
+const isOn = (value) => value === true || ["true", "1", "y", "yes", "on"].includes(String(value ?? "").trim().toLowerCase());
+const isSale = (p) => numberValue(p.salePrice) > 0 && numberValue(p.price) > 0 && numberValue(p.salePrice) < numberValue(p.price);
+const discountRate = (p) => (isSale(p) ? Math.max(1, Math.round((1 - numberValue(p.salePrice) / numberValue(p.price)) * 100)) : 0);
+const isLive = (p) => (p.status || "운영중") === "운영중";
+// 카탈로그 상단 구역 나누기: MD PICK → 특가(MD PICK이 아닌 것) → 나머지. 한 상품은 한 곳에만 나온다.
+function featuredSplit(products) {
+  const md = products.filter((p) => isLive(p) && isOn(p.mdPick));
+  const sale = products.filter((p) => isLive(p) && isSale(p) && !isOn(p.mdPick));
+  const shown = new Set([...md, ...sale].map((p) => p.uid));
+  return { md, sale, rest: products.filter((p) => !shown.has(p.uid)) };
+}
+function priceHtml(p) {
+  if (!isSale(p)) return escapeHtml(formatPrice(p.price));
+  return `<span class="price-was"><del>${formatNumber(p.price)}원</del><b class="discount">${discountRate(p)}%</b></span><span class="price-now">${formatNumber(p.salePrice)}원</span>`;
+}
+function cardBadges(p, inline = false) {
+  const badges = [];
+  if (isLive(p) && isOn(p.mdPick)) badges.push('<span class="card-badge md">MD PICK</span>');
+  if (isSale(p)) badges.push(`<span class="card-badge sale">${discountRate(p)}% 할인</span>`);
+  return badges.length ? `<div class="card-badges${inline ? " inline" : ""}">${badges.join("")}</div>` : "";
+}
+const shortName = (p) => (p.name || "상품").replace(/\s+/g, " ");
+// 저장하기 전 검사: MD PICK은 운영중 상품만, 특가가는 소비자가보다 낮게.
+function checkFeatured(p) {
+  if (isOn(p.mdPick) && !isLive(p)) throw new Error("MD PICK은 운영중인 상품만 지정할 수 있습니다.");
+  const sale = numberValue(p.salePrice), price = numberValue(p.price);
+  if (sale > 0 && price <= 0) throw new Error("특가가를 넣으려면 소비자가를 먼저 입력해주세요.");
+  if (sale > 0 && sale >= price) throw new Error(`특가가(${sale.toLocaleString("ko-KR")}원)는 소비자가(${price.toLocaleString("ko-KR")}원)보다 낮아야 합니다.`);
+}
 // 소비기한: 날짜(2027.02.11) 또는 기간(24개월, 2년)으로 적는다. 올바르면 정리된 글자를, 형식이 틀리면 null을 돌려준다.
 const SHELF_HINT = "2027.02.11 · 24개월 · 2년", SHELF_ERROR = "소비기한은 날짜(2027.02.11) 또는 24개월·2년 형식으로 입력해주세요.";
 const SHELF_PATTERN = String.raw`\s*(\d{4}(\.|-|/)(0?[1-9]|1[0-2])(\.|-|/)(0?[1-9]|[12]\d|3[01])|\d+\s*(개월|년))?\s*`;
@@ -66,8 +103,10 @@ function normalizeShelfLife(value) {
 function readField(key, raw) {
   const type = COLUMN_DEFS[key].type;
   if (type === "money") return numberValue(raw);
+  if (type === "flag") return isOn(raw);
   if (type === "shelf") { const value = normalizeShelfLife(raw); if (value === null) throw new Error(SHELF_ERROR); return value; }
   if (type === "url") return String(raw).replace(/\s+/g, "");
+  const max = COLUMN_DEFS[key].maxLength; if (max) return String(raw).replace(/\s*\n\s*/g, " ").trim().slice(0, max);
   return raw;
 }
 function statusClass(status) { return status === "임시품절" ? "paused" : status === "단종" ? "ended" : "active"; }
@@ -89,7 +128,10 @@ function persist(...keys) {
 }
 function updateBadges() { document.querySelector("#productCountBadge").textContent = state.products.length; document.querySelector("#issueCountBadge").textContent = state.issues.length; }
 function pageHead(title, description, actions = "") { return `<div class="page-head"><div><h1>${title}</h1>${description ? `<p>${description}</p>` : ""}</div><div class="page-actions">${actions}</div></div>`; }
-function visibleProducts() { const query = state.search.trim().toLowerCase(); return state.products.filter((p) => (state.status === "전체" || p.status === state.status) && (!query || state.columns.some((key) => String(p[key] || "").toLowerCase().includes(query)))); }
+// 상태 필터 칩: 전체 / 운영 상태 3종 / MD PICK / 특가
+const FILTER_EXTRA = ["MD PICK", "특가"];
+const matchesFilter = (p) => state.status === "전체" || p.status === state.status || (state.status === "MD PICK" && isOn(p.mdPick)) || (state.status === "특가" && isSale(p));
+function visibleProducts() { const query = state.search.trim().toLowerCase(); return state.products.filter((p) => matchesFilter(p) && (!query || state.columns.some((key) => typeof p[key] !== "boolean" && String(p[key] || "").toLowerCase().includes(query)))); }
 function render() { document.querySelectorAll(".nav-item").forEach((el) => el.classList.toggle("is-active", el.dataset.section === state.section)); if (state.section === "products") renderProducts(); else renderIssues(); }
 
 // 기본 데이터(data/products.js)는 이미 정리돼 있고, 예전 버전으로 저장된 브라우저 데이터만 보정한다.
@@ -98,7 +140,8 @@ function normalizeProduct(source) {
   product.uid = product.uid || uid();
   product.status = product.status || "운영중";
   product.saleLink = product.saleLink || product.url || "";
-  ["price", "shippingFee"].forEach((key) => { product[key] = numberValue(product[key]); });
+  ["price", "shippingFee", "salePrice"].forEach((key) => { product[key] = numberValue(product[key]); });
+  product.mdPick = isOn(product.mdPick); product.mdComment = String(product.mdComment ?? "");
   ["id", "legacyNo", "url", "saleStatus", "wholesalePrice", "organization", "manager", "barcode", "setPack", "shippingMethod", "note", "channel", "included", "featured", "change"].forEach((key) => delete product[key]);
   return product;
 }
@@ -107,10 +150,11 @@ function renderProducts() {
   const prevScroll = document.querySelector(".table-scroll"), scrollTop = prevScroll?.scrollTop || 0, scrollLeft = prevScroll?.scrollLeft || 0;
   const products = visibleProducts();
   const counts = Object.fromEntries(STATUS.map((status) => [status, state.products.filter((p) => p.status === status).length]));
+  counts["MD PICK"] = state.products.filter((p) => isOn(p.mdPick)).length; counts["특가"] = state.products.filter(isSale).length;
   const cols = state.columns.filter((key) => COLUMN_DEFS[key]);
   const tableWidth = 64 + cols.reduce((sum, key) => sum + (state.widths[key] || COLUMN_DEFS[key].width), 0);
   appView.innerHTML = `${pageHead("상품관리 및 발행", "", `<button class="button secondary" id="newProduct">${icons.plus}상품 등록</button><button class="button primary" id="openPublish" ${state.selected.size ? "" : "disabled"}>${icons.send}선택 ${state.selected.size}개 발행</button>`)}
-    <section class="panel"><div class="panel-head"><div class="status-filters">${["전체", ...STATUS].map((status) => `<button class="filter-chip ${state.status === status ? "is-active" : ""}" data-status="${status}">${status}<span>${status === "전체" ? state.products.length : counts[status]}</span></button>`).join("")}</div><div class="toolbar"><label class="search-wrap">${icons.search}<input id="productSearch" value="${escapeHtml(state.search)}" placeholder="전체 상품정보 검색"></label><div class="mode-switch"><button class="${state.mode === "view" ? "is-active" : ""}" data-mode="view">${icons.eye}보기모드</button><button class="${state.mode === "edit" ? "is-active" : ""}" data-mode="edit">${icons.edit}수정모드</button></div></div></div>
+    <section class="panel"><div class="panel-head"><div class="status-filters">${["전체", ...STATUS, ...FILTER_EXTRA].map((status) => `<button class="filter-chip ${FILTER_EXTRA.includes(status) ? "chip-extra" : ""} ${state.status === status ? "is-active" : ""}" data-status="${status}">${status}<span>${status === "전체" ? state.products.length : counts[status]}</span></button>`).join("")}</div><div class="toolbar"><label class="search-wrap">${icons.search}<input id="productSearch" value="${escapeHtml(state.search)}" placeholder="전체 상품정보 검색"></label><div class="mode-switch"><button class="${state.mode === "view" ? "is-active" : ""}" data-mode="view">${icons.eye}보기모드</button><button class="${state.mode === "edit" ? "is-active" : ""}" data-mode="edit">${icons.edit}수정모드</button></div></div></div>
       <div class="table-scroll"><table class="catalog-table ${state.mode === "edit" ? "edit-table" : ""}" style="width:${tableWidth}px"><colgroup><col class="utility-col">${cols.map((key) => `<col data-col-width="${key}" style="width:${state.widths[key] || COLUMN_DEFS[key].width}px">`).join("")}</colgroup><thead><tr><th class="utility-head"><input id="selectAll" type="checkbox" aria-label="현재 목록 전체 선택" ${products.length && products.every((p) => state.selected.has(p.uid)) ? "checked" : ""}></th>${cols.map(columnHeader).join("")}</tr></thead><tbody>${bodyRows(products, cols)}</tbody></table></div>
       <div class="table-footer"><span>총 ${products.length}개 표시 · ${cols.length}개 정보 열</span><span>열 머리글 드래그: 순서 · 열 경계 드래그: 너비 · ⋮⋮ 드래그: 행 순서</span><span>${state.mode === "edit" ? "입력값을 바꾸면 즉시 저장됩니다." : "상품 행을 누르면 상세 팝업이 열립니다."}</span></div></section>
       <div class="viewport-scrollbar" aria-label="상품표 좌우 스크롤"><div style="width:${tableWidth}px"></div></div>`;
@@ -119,9 +163,10 @@ function renderProducts() {
 }
 function bodyRows(products, cols) {
   const span = cols.length + 1, searching = Boolean(state.search.trim());
-  const html = STATUS.filter((status) => state.status === "전체" || state.status === status).map((status) => {
+  const onlyOne = STATUS.includes(state.status), special = FILTER_EXTRA.includes(state.status);
+  const html = STATUS.filter((status) => !onlyOne || state.status === status).map((status) => {
     const rows = products.filter((p) => p.status === status);
-    if (!rows.length && searching) return "";
+    if (!rows.length && (searching || special)) return "";
     const head = `<tr class="group-row ${statusClass(status)}" data-group="${status}"><td colspan="${span}"><div class="group-label"><i class="status-dot ${statusClass(status)}"></i><strong>${status}</strong><span>${rows.length}개</span></div></td></tr>`;
     return head + (rows.map(productRow).join("") || `<tr class="group-empty" data-group="${status}"><td colspan="${span}"><em>상품을 여기로 끌어다 놓으면 ${status} 상태로 바뀝니다.</em></td></tr>`);
   }).join("");
@@ -155,30 +200,39 @@ function viewCell(product, key) {
   const def = COLUMN_DEFS[key], value = product[key];
   if (def.type === "image") return imageMarkup(product);
   if (def.type === "status") return `<select class="status-select ${statusClass(value)}" data-edit-id="${product.uid}" data-field="status" aria-label="운영 상태 변경">${STATUS.map((s) => `<option ${s === (value || "운영중") ? "selected" : ""}>${s}</option>`).join("")}</select>`;
+  if (def.type === "flag") return flagCell(product, key);
+  if (key === "salePrice") return numberValue(value) > 0 ? `<strong>${formatNumber(value)}원</strong>${isSale(product) ? ` <span class="rate">-${discountRate(product)}%</span>` : ' <span class="rate warn">소비자가 이상</span>'}` : '<span class="muted">-</span>';
   if (def.type === "money") return `<strong>${formatPrice(value)}</strong>`;
   if (def.type === "url") return value ? `<a class="table-link" href="${escapeHtml(value)}" target="_blank" rel="noopener" title="${escapeHtml(value)}">판매처 열기 ↗</a>` : '<span class="muted">-</span>';
   if (def.type === "textarea") return `<span class="cell-clamp" title="${escapeHtml(value || "")}">${escapeHtml(value || "-")}</span>`;
   return escapeHtml(value || "-");
 }
+// MD PICK 체크박스: 보기모드에서도 바로 켜고 끈다.
+function flagCell(product, key) { return `<input class="flag-input" type="checkbox" data-edit-id="${product.uid}" data-field="${key}" ${isOn(product[key]) ? "checked" : ""} aria-label="${escapeHtml(COLUMN_DEFS[key].label)}">`; }
 function editCell(product, key) {
   const def = COLUMN_DEFS[key], value = product[key] ?? "";
+  if (def.type === "flag") return flagCell(product, key);
   if (def.type === "image") return `<label class="table-image-edit">${imageMarkup(product)}<input type="file" accept="image/*" data-image-id="${product.uid}"><span>사진 변경</span></label>`;
   if (def.type === "status") return `<select class="cell-input" data-edit-id="${product.uid}" data-field="${key}">${STATUS.map((s) => `<option ${s === value ? "selected" : ""}>${s}</option>`).join("")}</select>`;
   if (def.type === "textarea") return `<textarea class="cell-input cell-textarea" rows="2" data-edit-id="${product.uid}" data-field="${key}">${escapeHtml(value)}</textarea>`;
-  if (def.type === "money") return `<input class="cell-input money-input" inputmode="numeric" data-edit-id="${product.uid}" data-field="${key}" value="${formatNumber(value)}" placeholder="0">`;
+  if (def.type === "money") {
+    const input = `<input class="cell-input money-input" inputmode="numeric" data-edit-id="${product.uid}" data-field="${key}" value="${formatNumber(value)}" placeholder="${key === "salePrice" ? "비우면 특가 아님" : "0"}">`;
+    return key === "salePrice" ? `<div class="sale-edit">${input}<small class="rate">${isSale(product) ? `-${discountRate(product)}%` : ""}</small></div>` : input;
+  }
   // 그 밖의 글자 칸도 상품소개처럼 너비를 넘으면 줄바꿈·스크롤되고 높이를 늘릴 수 있다. (Enter=입력 완료, Shift+Enter=줄바꿈)
-  return `<textarea class="cell-input cell-textarea" rows="2" data-single data-edit-id="${product.uid}" data-field="${key}"${def.type === "shelf" ? ` placeholder="${SHELF_HINT}"` : ""}>${escapeHtml(value)}</textarea>`;
+  return `<textarea class="cell-input cell-textarea" rows="2" data-single data-edit-id="${product.uid}" data-field="${key}"${def.type === "shelf" ? ` placeholder="${SHELF_HINT}"` : ""}${def.maxLength ? ` maxlength="${def.maxLength}" placeholder="짧은 추천 문구 (${def.maxLength}자 이내)"` : ""}>${escapeHtml(value)}</textarea>`;
 }
 
 function fieldMarkup(key, value = "", prefix = "") {
-  const def = COLUMN_DEFS[key], name = `${prefix}${key}`, wide = ["name", "project", "description", "saleLink", "note"].includes(key) ? "wide" : "";
+  const def = COLUMN_DEFS[key], name = `${prefix}${key}`, wide = ["name", "project", "description", "saleLink", "note", "mdComment"].includes(key) ? "wide" : "";
   if (def.type === "image") return "";
+  if (def.type === "flag") return `<label class="flag-field ${wide}"><input type="checkbox" name="${name}" ${isOn(value) ? "checked" : ""}><span>${def.label} 지정 <small>(운영중 상품만)</small></span></label>`;
   if (def.type === "status") return `<label class="${wide}"><span>${def.label}</span><select name="${name}">${STATUS.map((s) => `<option ${s === value ? "selected" : ""}>${s}</option>`).join("")}</select></label>`;
   if (def.type === "textarea") return `<label class="${wide}"><span>${def.label}</span><textarea name="${name}" rows="3">${escapeHtml(value)}</textarea></label>`;
   const type = def.type === "url" ? "url" : "text";
   const shelf = def.type === "shelf" ? ` pattern="${SHELF_PATTERN}" title="${SHELF_ERROR}" placeholder="${SHELF_HINT}"` : "";
   const money = def.type === "money" ? ' money-input" inputmode="numeric' : "";
-  return `<label class="${wide}"><span>${def.label}${def.required ? " *" : ""}</span><input class="${money}" type="${type}" name="${name}" value="${escapeHtml(def.type === "money" ? formatNumber(value) : value)}"${shelf} ${def.required ? "required" : ""}></label>`;
+  return `<label class="${wide}"><span>${def.label}${def.required ? " *" : ""}</span><input class="${money}" type="${type}" name="${name}" value="${escapeHtml(def.type === "money" ? formatNumber(value) : value)}"${shelf}${key === "salePrice" ? ' placeholder="비우면 특가 아님 (소비자가보다 낮게)"' : ""}${def.maxLength ? ` maxlength="${def.maxLength}" placeholder="짧은 추천 문구 (${def.maxLength}자 이내)"` : ""} ${def.required ? "required" : ""}></label>`;
 }
 function registrationFields() { return state.columns.filter((key) => key !== "image" && COLUMN_DEFS[key]).map((key) => fieldMarkup(key)).join(""); }
 
@@ -187,7 +241,7 @@ function openProduct(product, options = {}) {
   const readOnly = Boolean(options.readOnly);
   const image = product.images?.[0] ? `<img src="${escapeHtml(product.images[0])}" alt="${escapeHtml(product.name)}">` : `<span>${escapeHtml(product.name?.slice(0, 1) || "F")}</span>`;
   document.querySelector("#productDialogContent").innerHTML = readOnly
-    ? `<div class="detail-layout"><div class="detail-image">${image}</div><div class="detail-info"><p class="detail-project">${escapeHtml(product.project || "사업명 미입력")}</p><h2>${escapeHtml(product.name)}</h2><p class="detail-weight">${escapeHtml(product.weight || "중량 미입력")}</p><p class="detail-description">${escapeHtml(product.description || "상품 설명이 아직 입력되지 않았습니다.").replaceAll("\n", "<br>")}</p><strong class="detail-price">${formatPrice(product.price)}</strong>${detailFacts(product)}${product.saleLink ? `<a class="button primary sales-button" href="${escapeHtml(product.saleLink)}" target="_blank" rel="noopener">판매처에서 보기 ↗</a>` : ""}</div></div>`
+    ? `<div class="detail-layout"><div class="detail-image">${image}</div><div class="detail-info">${cardBadges(product, true)}<p class="detail-project">${escapeHtml(product.project || "사업명 미입력")}</p><h2>${escapeHtml(product.name)}</h2><p class="detail-weight">${escapeHtml(product.weight || "중량 미입력")}</p>${isLive(product) && isOn(product.mdPick) && product.mdComment ? `<p class="md-comment">${escapeHtml(product.mdComment)}</p>` : ""}<p class="detail-description">${escapeHtml(product.description || "상품 설명이 아직 입력되지 않았습니다.").replaceAll("\n", "<br>")}</p><strong class="detail-price ${isSale(product) ? "is-sale" : ""}">${priceHtml(product)}</strong>${detailFacts(product)}${product.saleLink ? `<a class="button primary sales-button" href="${escapeHtml(product.saleLink)}" target="_blank" rel="noopener">판매처에서 보기 ↗</a>` : ""}</div></div>`
     : `<form id="detailEditForm" data-detail-id="${product.uid}"><div class="detail-edit-layout"><div class="detail-edit-aside"><div id="detailImagePreview" class="detail-image">${image}</div><label class="button secondary image-change-button"><input id="detailImageInput" type="file" accept="image/*">사진 변경</label><p>업로드한 사진은 1:1 비율로 자동 저장됩니다.</p></div><div class="detail-edit-main"><p class="eyebrow">PRODUCT EDIT</p><h2>${escapeHtml(product.name)}</h2><div class="form-grid detail-form-grid">${state.columns.filter((key) => key !== "image" && COLUMN_DEFS[key]).map((key) => fieldMarkup(key, product[key] ?? "", "detail-")).join("")}</div><div class="dialog-actions"><button class="button secondary" type="button" data-close-dialog>닫기</button><button class="button primary" type="submit">변경사항 저장</button></div></div></div></form>`;
   productDialog.showModal();
 }
@@ -207,15 +261,25 @@ function renderIssueDetail(issueId) {
 }
 function publishedCard(product, issueId, publicMode = false) {
   const summary = publicMode
-    ? `<strong>${escapeHtml(product.name)}</strong><small class="public-weight">${escapeHtml(product.weight || "중량 미입력")}</small><p class="public-description">${escapeHtml(product.description || "상품 소개가 아직 입력되지 않았습니다.")}</p><em>${formatPrice(product.price)}</em>`
-    : `<span class="status-pill ${statusClass(product.status)}">${product.status}</span><strong>${escapeHtml(product.name)}</strong><small>${escapeHtml(product.category || "상품 유형 미입력")}</small><em>${formatPrice(product.price)}</em>`;
-  return `<article class="published-product"><button class="published-detail" data-snapshot="${issueId}" data-snapshot-product="${product.uid}">${imageMarkup(product, "published-thumb")}${summary}</button>${product.saleLink ? `<a class="sales-link" href="${escapeHtml(product.saleLink)}" target="_blank" rel="noopener">판매처에서 보기 ↗</a>` : `<span class="sales-link disabled">판매링크 미등록</span>`}</article>`;
+    ? `<strong>${escapeHtml(product.name)}</strong><small class="public-weight">${escapeHtml(product.weight || "중량 미입력")}</small>${isLive(product) && isOn(product.mdPick) && product.mdComment ? `<p class="md-comment">${escapeHtml(product.mdComment)}</p>` : ""}<p class="public-description">${escapeHtml(product.description || "상품 소개가 아직 입력되지 않았습니다.")}</p><em class="${isSale(product) ? "is-sale" : ""}">${priceHtml(product)}</em>`
+    : `<span class="status-pill ${statusClass(product.status)}">${product.status}</span><strong>${escapeHtml(product.name)}</strong><small>${escapeHtml(product.category || "상품 유형 미입력")}</small><em class="${isSale(product) ? "is-sale" : ""}">${priceHtml(product)}</em>`;
+  return `<article class="published-product">${cardBadges(product)}<button class="published-detail" data-snapshot="${issueId}" data-snapshot-product="${product.uid}">${imageMarkup(product, "published-thumb")}${summary}</button>${product.saleLink ? `<a class="sales-link" href="${escapeHtml(product.saleLink)}" target="_blank" rel="noopener">판매처에서 보기 ↗</a>` : `<span class="sales-link disabled">판매링크 미등록</span>`}</article>`;
 }
 function renderPublicCatalog(issueId, failed = false) {
   document.body.classList.add("public-catalog-mode"); document.documentElement.classList.remove("is-catalog"); document.querySelector("#catalogSplash")?.remove();
   const issue = state.issues.find((item) => item.id === issueId);
   if (!issue) { appView.innerHTML = `<div class="public-empty"><img class="public-empty-icon" src="assets/icon.png" alt=""><h1>${failed ? "카탈로그를 불러오지 못했습니다." : "이 카탈로그를 찾을 수 없습니다."}</h1><p>${failed ? "네트워크 상태를 확인하고 다시 시도해주세요." : "아직 발행되지 않았거나 주소가 올바르지 않습니다."}</p>${failed ? '<button class="button primary" onclick="location.reload()">다시 시도</button>' : ""}</div>`; return; }
-  appView.innerHTML = `<div class="public-catalog"><header><div class="public-brand"><img class="brand-mark" src="assets/icon.png" alt=""><strong>FAMNET CAFETERIA</strong></div><p>${issue.year} MONTHLY COLLECTION</p><h1>${issue.month}월의 팜넷 상품</h1><span>${issue.products.length}개 상품</span></header><main><div class="public-products">${issue.products.map((p) => publishedCard(p, issue.id, true)).join("")}</div></main></div>`;
+  appView.innerHTML = `<div class="public-catalog"><header><div class="public-brand"><img class="brand-mark" src="assets/icon.png" alt=""><strong>FAMNET CAFETERIA</strong></div><p>${issue.year} MONTHLY COLLECTION</p><h1>${issue.month}월의 팜넷 상품</h1><span>${issue.products.length}개 상품</span></header><main>${publicSections(issue)}</main></div>`;
+}
+// 외부 카탈로그 본문: 이달의 MD PICK → 특가 할인 → 전체 상품. 지정된 상품이 없으면 해당 구역은 나오지 않는다.
+function publicSections(issue) {
+  const { md, sale, rest } = featuredSplit(issue.products);
+  const grid = (list, cls = "") => `<div class="public-products ${cls}">${list.map((p) => publishedCard(p, issue.id, true)).join("")}</div>`;
+  const section = (cls, title, caption, list, gridCls = "") => `<section class="public-section ${cls}"><div class="section-head"><h2>${title}</h2><p>${caption}</p></div>${grid(list, gridCls)}</section>`;
+  const featured = md.length + sale.length > 0;
+  return (md.length ? section("md", "이달의 MD PICK", "MD가 이번 달 가장 추천하는 상품", md, "md-grid") : "")
+    + (sale.length ? section("sale", "특가 할인", "이번 달에만 만나는 특별한 가격", sale) : "")
+    + (rest.length ? (featured ? section("all", "전체 상품", `${rest.length}개`, rest) : grid(rest)) : "");
 }
 
 function openPublish() {
@@ -235,9 +299,11 @@ function askConfirm({ title, message, ok }) {
 async function requestPublish() {
   const year = Number(document.querySelector("#publishYear").value), month = Number(document.querySelector("#publishMonth").value), id = `${year}-${String(month).padStart(2, "0")}`;
   const existing = state.issues.find((item) => item.id === id), count = state.selected.size;
+  const { md, sale } = featuredSplit(state.products.filter((p) => state.selected.has(p.uid)));
+  const featuredNote = md.length + sale.length ? `<br>카탈로그 상단에 <strong>MD PICK ${md.length}개 · 특가 ${sale.length}개</strong>가 노출됩니다.` : "";
   const confirmed = await askConfirm(existing
-    ? { title: `${year}년 ${month}월호를 덮어쓸까요?`, message: `이미 발행된 ${year}년 ${month}월호가 있습니다.<br>덮어쓰면 기존 <strong>${existing.products.length}개</strong> 상품이 이번에 선택한 <strong>${count}개</strong> 상품으로 교체됩니다.`, ok: "덮어쓰기" }
-    : { title: `${year}년 ${month}월호를 신규 발행할까요?`, message: `아직 발행된 ${year}년 ${month}월호가 없습니다.<br>선택한 <strong>${count}개</strong> 상품으로 새 월호를 발행합니다.`, ok: "신규 발행" });
+    ? { title: `${year}년 ${month}월호를 덮어쓸까요?`, message: `이미 발행된 ${year}년 ${month}월호가 있습니다.<br>덮어쓰면 기존 <strong>${existing.products.length}개</strong> 상품이 이번에 선택한 <strong>${count}개</strong> 상품으로 교체됩니다.${featuredNote}`, ok: "덮어쓰기" }
+    : { title: `${year}년 ${month}월호를 신규 발행할까요?`, message: `아직 발행된 ${year}년 ${month}월호가 없습니다.<br>선택한 <strong>${count}개</strong> 상품으로 새 월호를 발행합니다.${featuredNote}`, ok: "신규 발행" });
   if (confirmed) publishIssue();
 }
 function publishIssue() {
@@ -288,7 +354,26 @@ document.addEventListener("input", (event) => {
 document.addEventListener("change", async (event) => {
   if (event.target.matches("[data-select]")) { event.target.checked ? state.selected.add(event.target.dataset.select) : state.selected.delete(event.target.dataset.select); return syncSelection(); }
   if (event.target.id === "selectAll") { visibleProducts().forEach((p) => event.target.checked ? state.selected.add(p.uid) : state.selected.delete(p.uid)); document.querySelectorAll("[data-select]").forEach((box) => { box.checked = event.target.checked; }); return syncSelection(); }
-  if (event.target.matches("[data-edit-id]")) { const product = state.products.find((p) => p.uid === event.target.dataset.editId); if (!product) return; const field = event.target.dataset.field; let value; try { value = readField(field, event.target.value); } catch (error) { event.target.value = product[field] ?? ""; return showToast(error.message); } if (COLUMN_DEFS[field].type === "shelf") event.target.value = value; product[field] = value; if (field === "status") sortProducts(state.products); persist(); showToast(field === "status" ? `${(product.name || "상품").replace(/\s+/g, " ")}: ${product.status}(으)로 이동했습니다.` : `${product.name || "상품"} 정보가 저장되었습니다.`); if (field === "status") renderProducts(); }
+  if (event.target.matches("[data-edit-id]")) {
+    const product = state.products.find((p) => p.uid === event.target.dataset.editId); if (!product) return;
+    const input = event.target, field = input.dataset.field, isFlag = input.type === "checkbox";
+    const revert = () => { if (isFlag) input.checked = isOn(product[field]); else input.value = COLUMN_DEFS[field].type === "money" ? formatNumber(product[field]) : product[field] ?? ""; };
+    let value, unflagged = false;
+    try {
+      value = readField(field, isFlag ? input.checked : input.value);
+      const next = { ...product, [field]: value };
+      if (field === "status" && value !== "운영중" && isOn(product.mdPick)) { next.mdPick = false; unflagged = true; } // 운영중이 아니게 되면 MD PICK은 자동 해제
+      checkFeatured(next);
+    } catch (error) { revert(); return showToast(error.message); }
+    if (COLUMN_DEFS[field].type === "shelf" || COLUMN_DEFS[field].maxLength) input.value = value;
+    product[field] = value; if (unflagged) product.mdPick = false;
+    if (field === "status") sortProducts(state.products);
+    persist();
+    const rate = input.closest("tr")?.querySelector('[data-cell="salePrice"] .rate'); if (rate && ["price", "salePrice"].includes(field)) rate.textContent = isSale(product) ? `-${discountRate(product)}%` : "";
+    showToast(field === "status" ? `${shortName(product)}: ${product.status}(으)로 이동했습니다.${unflagged ? " MD PICK 지정도 해제했습니다." : ""}` : field === "mdPick" ? `${shortName(product)}: MD PICK ${value ? "지정" : "해제"}` : field === "salePrice" ? (value ? `${shortName(product)}: 특가 ${discountRate(product)}% 할인` : `${shortName(product)}: 특가 해제`) : `${product.name || "상품"} 정보가 저장되었습니다.`);
+    if (field === "status" || field === "mdPick" && state.status === "MD PICK" || field === "salePrice" && state.status === "특가") renderProducts();
+    else if (["mdPick", "salePrice"].includes(field)) document.querySelectorAll(".filter-chip.chip-extra span").forEach((chip) => { chip.textContent = chip.parentElement.dataset.status === "MD PICK" ? state.products.filter((p) => isOn(p.mdPick)).length : state.products.filter(isSale).length; });
+  }
   if (event.target.matches("[data-image-id]")) { const product = state.products.find((p) => p.uid === event.target.dataset.imageId); if (product) { await replaceImage(product, event.target.files?.[0], ""); renderProducts(); } }
   if (event.target.id === "newProductImage" && event.target.files?.[0]) { const value = await squareImage(event.target.files[0]); event.target.dataset.processed = value; document.querySelector("#newProductPreview").innerHTML = `<img src="${value}" alt="미리보기">`; }
   if (event.target.id === "detailImageInput") { const product = state.products.find((p) => p.uid === document.querySelector("#detailEditForm")?.dataset.detailId); if (product) await replaceImage(product, event.target.files?.[0], "#detailImagePreview"); event.target.value = ""; }
@@ -349,8 +434,9 @@ function moveProduct(uid, target) {
     const first = state.products.findIndex((p) => statusRank(p.status) >= statusRank(moved.status));
     state.products.splice(first < 0 ? state.products.length : first, 0, moved);
   }
+  const unflagged = moved.status !== "운영중" && isOn(moved.mdPick); if (unflagged) moved.mdPick = false; // 운영중이 아니게 되면 MD PICK은 자동 해제
   sortProducts(state.products); persist(); renderProducts();
-  if (moved.status !== previous) showToast(`${(moved.name || "상품").replace(/\s+/g, " ")}: ${previous} → ${moved.status}`);
+  if (moved.status !== previous) showToast(`${(moved.name || "상품").replace(/\s+/g, " ")}: ${previous} → ${moved.status}${unflagged ? " (MD PICK 해제)" : ""}`);
 }
 document.addEventListener("dragend", () => {
   if (state.draggedColumn) persist("columns");
@@ -385,17 +471,26 @@ document.addEventListener("mouseup", disarmDrag);
 
 document.querySelector("#productForm").addEventListener("submit", async (event) => {
   event.preventDefault(); const data = Object.fromEntries(new FormData(event.currentTarget)); const product = normalizeProduct({ uid: uid(), images: event.currentTarget.image.dataset.processed ? [event.currentTarget.image.dataset.processed] : [] });
-  try { state.columns.forEach((key) => { if (key === "image") return; product[key] = readField(key, data[key] ?? ""); }); } catch (error) { return showToast(error.message); }
+  try { state.columns.forEach((key) => { if (key === "image") return; product[key] = readField(key, data[key] ?? ""); }); checkFeatured(product); } catch (error) { return showToast(error.message); }
   state.products.unshift(product); sortProducts(state.products); persist(); formDialog.close(); renderProducts(); showToast("새 상품이 등록되었습니다.");
 });
 document.addEventListener("submit", (event) => {
   if (event.target.id !== "detailEditForm") return; event.preventDefault(); const product = state.products.find((p) => p.uid === event.target.dataset.detailId); if (!product) return;
-  const data = Object.fromEntries(new FormData(event.target)); try { const next = {}; state.columns.forEach((key) => { if (key === "image") return; next[key] = readField(key, data[`detail-${key}`] ?? ""); }); Object.assign(product, next); } catch (error) { return showToast(error.message); }
+  const data = Object.fromEntries(new FormData(event.target)); try { const next = {}; state.columns.forEach((key) => { if (key === "image") return; next[key] = readField(key, data[`detail-${key}`] ?? ""); }); checkFeatured({ ...product, ...next }); Object.assign(product, next); } catch (error) { return showToast(error.message); }
   sortProducts(state.products); persist(); productDialog.close(); renderProducts(); showToast("상품 상세정보를 저장했습니다.");
 });
 [productDialog, formDialog, publishDialog, confirmDialog].forEach((dialog) => dialog.addEventListener("click", (event) => { if (event.target !== dialog) return; const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); }));
 
-const mergeColumns = (columns) => [...new Set([...columns.filter((key) => COLUMN_DEFS[key]), ...DEFAULT_COLUMNS])];
+// 저장된 열 순서에 없는 새 열(MD PICK 등)은 기본 순서상 바로 앞 열 뒤에 끼워 넣는다.
+function mergeColumns(columns) {
+  const result = columns.filter((key, i) => COLUMN_DEFS[key] && columns.indexOf(key) === i);
+  DEFAULT_COLUMNS.forEach((key, i) => {
+    if (result.includes(key)) return;
+    const prev = DEFAULT_COLUMNS.slice(0, i).reverse().find((k) => result.includes(k));
+    result.splice(prev ? result.indexOf(prev) + 1 : 0, 0, key);
+  });
+  return result;
+}
 function canRefresh() {
   const active = document.activeElement;
   const typing = active && (active.tagName === "TEXTAREA" || (active.tagName === "INPUT" && active.id !== "productSearch" && !["checkbox", "file", "button"].includes(active.type)));
@@ -409,7 +504,7 @@ function renderKeepingSearch() {
 
 // 외부 카탈로그: 전에 본 적 있으면 저장해 둔 화면을 바로 보여주고, 최신 내용은 뒤에서 받아 달라졌을 때만 갱신한다.
 async function loadPublicCatalog(id) {
-  const cacheKey = `farmnet-catalog-${id}`;
+  const cacheKey = `famnet-catalog-${id}`;
   let cached = null; try { cached = JSON.parse(localStorage.getItem(cacheKey) || "null"); } catch {}
   if (cached) { state.issues = [cached]; renderPublicCatalog(id); }
   try {
@@ -427,7 +522,8 @@ async function init() {
       // 모두가 함께 쓰는 공용 데이터: 구글 시트(Apps Script)에서 불러온다.
       document.querySelector(".sidebar-note strong").textContent = "공용 데이터";
       document.querySelector(".sidebar-note p").textContent = "모든 담당자가 같은 데이터를 함께 수정합니다. 변경은 몇 초 안에 다른 사람 화면에도 반영됩니다.";
-      appView.innerHTML = '<div class="empty-state"><span>…</span><h2>공용 데이터를 불러오는 중입니다.</h2></div>';
+      appView.innerHTML = '<div class="empty-state"><span>…</span><h2>공용 데이터를 불러오는 중입니다.</h2><p id="loadingNote">구글 서버 응답을 기다리고 있습니다.</p></div>';
+      Sync.onRetry = (attempt) => { const note = document.querySelector("#loadingNote"); if (note) note.textContent = `서버 응답이 느려 다시 시도하는 중입니다. (${attempt}/3)`; };
       Sync.attach(state, { normalize: normalizeProduct, sort: sortProducts, mergeColumns, canRefresh, render: renderKeepingSearch, seed: () => sortProducts((window.__PRODUCTS__ || []).map(normalizeProduct)) });
       if (publicIssue) return loadPublicCatalog(publicIssue);
       await Sync.load(); updateBadges(); return render();
@@ -435,9 +531,9 @@ async function init() {
     const savedProducts = JSON.parse(localStorage.getItem(STORAGE.products) || "null"), savedIssues = JSON.parse(localStorage.getItem(STORAGE.issues) || "null"), raw = savedProducts || window.__PRODUCTS__;
     if (!raw) throw new Error("상품 데이터를 불러오지 못했습니다.");
     const mapped = raw.map(normalizeProduct); state.products = sortProducts([...mapped]); const reordered = state.products.some((p, i) => p !== mapped[i]); state.issues = (savedIssues || []).map((issue) => ({ ...issue, products: issue.products.map(normalizeProduct) }));
-    state.columns = [...new Set([...state.columns.filter((key) => COLUMN_DEFS[key]), ...DEFAULT_COLUMNS.filter((key) => !state.columns.includes(key))])];
+    state.columns = mergeColumns(state.columns);
     if (!savedProducts || reordered) persist(); else updateBadges();
     if (publicIssue) renderPublicCatalog(publicIssue); else render();
-  } catch (error) { appView.innerHTML = `<div class="empty-state"><span>!</span><h2>상품 데이터를 불러오지 못했습니다.</h2><p>${escapeHtml(error.message)}</p><button class="button primary" onclick="location.reload()">다시 시도</button></div>`; }
+  } catch (error) { appView.innerHTML = `<div class="empty-state"><span>!</span><h2>상품 데이터를 불러오지 못했습니다.</h2><p>${escapeHtml(error.message)}<br>계속되면 담당자에게 알려주세요.</p><button class="button primary" onclick="location.reload()">다시 시도</button></div>`; }
 }
 init();

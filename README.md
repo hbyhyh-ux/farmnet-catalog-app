@@ -21,7 +21,7 @@ python -m http.server 8000 --directory dist
 
 ## 데이터 저장 방식
 
-- `dist/config.js`의 `FARMNET_API`가 비어 있으면: 각자 브라우저(`localStorage`)에만 저장됩니다.
+- `dist/config.js`의 `FAMNET_API`가 비어 있으면: 각자 브라우저(`localStorage`)에만 저장됩니다.
 - 주소를 넣으면: 구글 시트(Apps Script)를 공용 저장소로 써서 모든 담당자가 함께 수정하고, 열 순서·너비도 공통입니다. 설정 방법은 [apps-script/README.md](apps-script/README.md)를 참고하세요.
 
 ## GitHub Pages
